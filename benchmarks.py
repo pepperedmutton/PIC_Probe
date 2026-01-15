@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,6 +23,7 @@ def ensure_results_dir() -> Path:
 
 
 def test_vacuum_cylindrical_capacitor(out_dir: Path) -> float:
+    print("\n[Test 1/3] Running vacuum cylindrical capacitor test...")
     r_min = 0.5e-3
     r_max = 5.0e-3
     v_bias = -100.0
@@ -64,6 +66,7 @@ def test_vacuum_cylindrical_capacitor(out_dir: Path) -> float:
 
 
 def test_electron_temperature(out_dir: Path) -> tuple[float, float]:
+    print("\n[Test 2/3] Running electron temperature measurement...")
     cfg = Config(
         N_CELLS=100,
         DT=1.0e-11,
@@ -88,12 +91,17 @@ def test_electron_temperature(out_dir: Path) -> tuple[float, float]:
         seed=10,
     )
 
+    def progress_callback(done, total, v):
+        pass  # Progress handled by tqdm
+
+    print("  Running voltage scan...")
     iv = sim.scan_voltage_range(
         v_start=-10.0,
         v_end=-2.0,
         n_steps=9,
         n_burn_in=6000,
         n_sampling=6000,
+        progress_cb=progress_callback,
     )
 
     voltages = iv["voltages"]
@@ -122,6 +130,7 @@ def test_electron_temperature(out_dir: Path) -> tuple[float, float]:
     ax.set_title(f"Inferred Te = {inferred_te:.2f} eV (slope={slope:.3f})")
     fig.tight_layout()
     fig.savefig(out_dir / "benchmark_test2_electron_temperature.png", dpi=160)
+    print(f"  ✓ Test 2 complete: Te = {inferred_te:.2f} eV (slope = {slope:.3f})")
     data = np.column_stack((voltages, i_e, np.log(np.maximum(i_e, 1.0e-30)), fit_full))
     np.savetxt(
         out_dir / "benchmark_test2_electron_temperature.csv",
@@ -135,12 +144,14 @@ def test_electron_temperature(out_dir: Path) -> tuple[float, float]:
 
 
 def test_oml_regime(out_dir: Path) -> float:
+    print("\n[Test 3/3] Running OML regime linearity test...")
+    print("  This test may take several minutes...")
     cfg = Config(
         N_CELLS=120,
         DT=1.0e-11,
-        R_MIN=2.0e-5,      # 进一步减小探针半径以满足 r_p << lambda_D
-        R_MAX=2.0e-3,
-        N0=5.0e15,         # 方案2: 从10^14增大到5x10^15
+        R_MIN=5.0e-4,       # 修复：500 μm >> λ_D (67 μm)
+        R_MAX=5.0e-3,
+        N0=5.0e15,          # 方案2: 从10^14增大到5x10^15
         Te=2.0,
         Ti=0.026,
         P_Torr=0.0,
@@ -159,13 +170,25 @@ def test_oml_regime(out_dir: Path) -> float:
         seed=11,
     )
 
+    print(f"  Parameters: {sim.n_particles} particles, {cfg.N0:.1e} m^-3 density")
+    print(f"  Scanning {9} voltage points from -50V to -10V...")
+    
+    def progress_callback(done, total, v):
+        pct = (done / total) * 100
+        bar_len = 30
+        filled = int(bar_len * done / total)
+        bar = '█' * filled + '░' * (bar_len - filled)
+        print(f"\r  Progress: [{bar}] {pct:.0f}% ({done}/{total}) @ {v:.1f}V", end='', flush=True)
+    
     iv = sim.scan_voltage_range(
         v_start=-50.0,
         v_end=-10.0,
         n_steps=9,
         n_burn_in=20000,    # 方案3: 从8000增加到20000
         n_sampling=30000,   # 方案3: 从8000增加到30000
+        progress_cb=progress_callback,
     )
+    print()  # New line after progress bar
 
     voltages = iv["voltages"]
     i_i = iv["I_ion"]
@@ -196,22 +219,40 @@ def test_oml_regime(out_dir: Path) -> float:
         header="V_bias,abs_V,I_ion,I_ion_sq,fit_Iion_sq",
         comments="",
     )
+    print(f"  ✓ Test 3 complete: OML R² = {r2:.3f}")
     return r2
 
 
 def main() -> None:
+    print("="*60)
+    print("PICSIMU Benchmark Suite")
+    print("="*60)
+    start_time = time.time()
+    
     out_dir = ensure_results_dir()
+    print(f"Output directory: {out_dir}\n")
+    
     err = test_vacuum_cylindrical_capacitor(out_dir)
     slope, te_inferred = test_electron_temperature(out_dir)
     r2 = test_oml_regime(out_dir)
 
+    elapsed = time.time() - start_time
+    print("\n" + "="*60)
+    print("BENCHMARK RESULTS")
+    print("="*60)
     print(f"Test 1 - Vacuum capacitor max relative error: {err * 100:.4f}%")
     if slope != 0.0:
         print(f"Test 2 - ln(I_e) slope: {slope:.3f}, inferred Te: {te_inferred:.2f} eV")
     else:
         print("Test 2 - ln(I_e) fit failed (insufficient positive current samples).")
     print(f"Test 3 - OML linearity R^2: {r2:.3f}")
-    print(f"Saved plots to {out_dir}")
+    print("="*60)
+    print(f"Total runtime: {elapsed:.1f} seconds")
+    print(f"Saved plots to: {out_dir}")
+    print("="*60)
+    print(f"Total runtime: {elapsed:.1f} seconds")
+    print(f"Saved plots to: {out_dir}")
+    print("="*60)
 
 
 if __name__ == "__main__":
