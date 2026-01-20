@@ -30,6 +30,7 @@ class Config:
     SIGMA_EN_ION: float = 1.0e-20
     E_EXC_EV: float = 11.6
     E_ION_EV: float = 15.8
+    ION_INJECTION_BOHM: bool = True
 
     @property
     def dr(self) -> float:

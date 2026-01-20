@@ -168,7 +168,7 @@ def test_oml_regime(out_dir: Path) -> float:
 
     sim = PICSimulation(
         cfg,
-        n_particles=50000,  # 方案3: 从8000增加到50000
+        n_particles=20000,
         v_bias=-50.0,
         probe_length=1.0,
         sigma_cex=0.0,
@@ -189,8 +189,8 @@ def test_oml_regime(out_dir: Path) -> float:
         v_start=-50.0,
         v_end=-10.0,
         n_steps=9,
-        n_burn_in=20000,    # 方案3: 从8000增加到20000
-        n_sampling=30000,   # 方案3: 从8000增加到30000
+        n_burn_in=200000,
+        n_sampling=80000,
         progress_cb=progress_callback,
     )
     print()  # New line after progress bar

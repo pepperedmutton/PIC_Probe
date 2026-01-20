@@ -75,6 +75,7 @@ class PICSimulation:
 
         self.vth_e = math.sqrt(config.e * config.Te / config.m_e)
         self.vth_i = math.sqrt(config.e * config.Ti / config.m_i)
+        self.u_bohm = math.sqrt(config.e * max(config.Te, 0.1) / config.m_i)
 
         self.q_weight = self._compute_macro_weight()
         self.qe = -config.e * self.q_weight
@@ -83,8 +84,13 @@ class PICSimulation:
         self.qi_arr = np.full(n_particles, self.qi)
 
         self.n_g, self.vth_gas = self._compute_neutral_properties()
-        self.inject_target_e = self._compute_injection_target(self.vth_e)
-        self.inject_target_i = self._compute_injection_target(self.vth_i)
+        self.inject_target_e = self._compute_injection_target_maxwellian(self.vth_e)
+        self.ion_inject_drift = 0.0
+        if config.ION_INJECTION_BOHM:
+            self.ion_inject_drift = self.u_bohm
+            self.inject_target_i = self._compute_injection_target_drift(self.u_bohm)
+        else:
+            self.inject_target_i = self._compute_injection_target_maxwellian(self.vth_i)
         self.inject_residual_e = 0.0
         self.inject_residual_i = 0.0
         self.sigma_en_elastic = config.SIGMA_EN_ELASTIC
@@ -108,8 +114,14 @@ class PICSimulation:
         v_th = math.sqrt(self.config.k_B * t_gas_k / self.config.m_i)
         return n_g, v_th
 
-    def _compute_injection_target(self, vth: float) -> float:
+    def _compute_injection_target_maxwellian(self, vth: float) -> float:
         flux = self.config.N0 * vth / math.sqrt(2.0 * math.pi)
+        boundary_area = 2.0 * math.pi * self.r_max
+        n_phys = flux * boundary_area * self.dt
+        return n_phys / self.q_weight
+
+    def _compute_injection_target_drift(self, drift: float) -> float:
+        flux = self.config.N0 * max(drift, 0.0)
         boundary_area = 2.0 * math.pi * self.r_max
         n_phys = flux * boundary_area * self.dt
         return n_phys / self.q_weight
@@ -194,6 +206,7 @@ class PICSimulation:
         vth: float,
         target_per_step: float,
         residual: float,
+        drift: float = 0.0,
     ) -> float:
         dead_idx = np.flatnonzero((r <= self.r_min) | (r >= self.r_max))
         n_dead = int(dead_idx.size)
@@ -219,7 +232,7 @@ class PICSimulation:
         r[idx] = self.r_max - 0.5 * self.dr * np.random.random(n_inject)
         u = np.random.random(n_inject)
         u = np.clip(u, 1.0e-12, 1.0 - 1.0e-12)
-        vr_in = vth * np.sqrt(-2.0 * np.log(u))
+        vr_in = drift + vth * np.sqrt(-2.0 * np.log(u))
         vr[idx] = -vr_in
         vt[idx] = np.random.normal(0.0, vth, n_inject)
         return residual
@@ -232,6 +245,7 @@ class PICSimulation:
             self.vth_e,
             self.inject_target_e,
             self.inject_residual_e,
+            drift=0.0,
         )
         self.inject_residual_i = self.inject_particles(
             self.r_i,
@@ -240,6 +254,7 @@ class PICSimulation:
             self.vth_i,
             self.inject_target_i,
             self.inject_residual_i,
+            drift=self.ion_inject_drift,
         )
 
         e_hits, _ = push_particles(
