@@ -65,14 +65,16 @@ print(res.avg_current)
 ## Validation status (high level)
 
 - Poisson solver: passed vacuum cylindrical capacitor test
-- Electron temperature check: under review
-- OML ion dynamics: passed (I_i^2 vs |V| linearity)
+- Electron temperature check: passed (Te ≈ 2.02 eV)
+- OML ion dynamics: passed (R² = 0.993 for I_i^2 vs |V|)
+- Collisional damping: passed (ion current suppression with pressure)
 
 ## Benchmarks (what they check)
 
 - Vacuum cylindrical capacitor: validates the Poisson solver and the 1/r geometry term
 - Electron temperature check: verifies velocity sampling and the Boltzmann relation in the retarding region
 - OML ion dynamics: checks angular momentum conservation and I_i^2 ∝ |V| behavior
+- Collisional damping: checks ion current suppression vs pressure (CEX)
 
 ## Model assumptions (brief)
 
