@@ -30,7 +30,12 @@ class Config:
     SIGMA_EN_ION: float = 1.0e-20
     E_EXC_EV: float = 11.6
     E_ION_EV: float = 15.8
+    E_ION_EV: float = 15.8
     ION_INJECTION_BOHM: bool = True
+    
+    # Numerical stability features
+    SMOOTH_DENSITY: bool = False
+    N_SMOOTHING_PASSES: int = 1
 
     @property
     def dr(self) -> float:

@@ -3,19 +3,19 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from numba import jit
+from numba import jit, prange
 
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def compute_shell_volumes(r_min: float, dr: float, vol: np.ndarray) -> None:
     """Fill volume array for cylindrical shells (per unit length)."""
     n_nodes = vol.shape[0]
-    for j in range(n_nodes):
+    for j in prange(n_nodes):
         r_j = r_min + dr * j
         vol[j] = 2.0 * math.pi * r_j * dr
 
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def weight_charge_cic(
     r: np.ndarray,
     q: np.ndarray,
@@ -26,7 +26,7 @@ def weight_charge_cic(
 ) -> None:
     """Scatter particle charge to grid with cylindrical volume correction."""
     n_nodes = rho.shape[0]
-    for j in range(n_nodes):
+    for j in prange(n_nodes):
         rho[j] = 0.0
 
     r_max = r_min + dr * (n_nodes - 1)
@@ -43,14 +43,14 @@ def weight_charge_cic(
         rho[j] += qi * (1.0 - w)
         rho[j + 1] += qi * w
 
-    for j in range(n_nodes):
+    for j in prange(n_nodes):
         if vol[j] > 0.0:
             rho[j] /= vol[j]
         else:
             rho[j] = 0.0
 
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def push_particles(
     r: np.ndarray,
     vr: np.ndarray,
@@ -75,7 +75,7 @@ def push_particles(
     r_span = r_max - r_min
     r_dead = r_max + r_span
 
-    for i in range(r.shape[0]):
+    for i in prange(r.shape[0]):
         ri = r[i]
         if ri <= r_min or ri >= r_max:
             continue

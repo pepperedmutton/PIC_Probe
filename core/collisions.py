@@ -3,10 +3,10 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from numba import jit
+from numba import jit, prange
 
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def perform_mcc_ion(
     r: np.ndarray,
     vr: np.ndarray,
@@ -20,7 +20,7 @@ def perform_mcc_ion(
 ) -> int:
     """Ion-neutral charge exchange (CEX) collisions."""
     n_collisions = 0
-    for i in range(r.shape[0]):
+    for i in prange(r.shape[0]):
         ri = r[i]
         if ri <= r_min or ri >= r_max:
             continue
@@ -33,7 +33,7 @@ def perform_mcc_ion(
     return n_collisions
 
 
-@jit(nopython=True)
+@jit(nopython=True, parallel=True)
 def perform_mcc_electron(
     r: np.ndarray,
     vr: np.ndarray,
@@ -56,7 +56,7 @@ def perform_mcc_electron(
     if sigma_el <= 0.0 and sigma_exc <= 0.0 and sigma_ion <= 0.0:
         return n_el, n_exc, n_ion
 
-    for i in range(r.shape[0]):
+    for i in prange(r.shape[0]):
         ri = r[i]
         if ri <= r_min or ri >= r_max:
             continue

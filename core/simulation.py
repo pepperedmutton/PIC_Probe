@@ -9,7 +9,7 @@ import numpy as np
 
 from core.collisions import perform_mcc_electron, perform_mcc_ion
 from core.config import Config
-from core.fields import compute_electric_field, solve_poisson_cylindrical
+from core.fields import compute_electric_field, solve_poisson_cylindrical, smooth_density_cylindrical
 from core.particles import compute_shell_volumes, push_particles, weight_charge_cic
 
 
@@ -187,6 +187,10 @@ class PICSimulation:
         weight_charge_cic(self.r_e, self.qe_arr, self.r_min, self.dr, self.rho_e, self.vol)
         weight_charge_cic(self.r_i, self.qi_arr, self.r_min, self.dr, self.rho_i, self.vol)
         self.rho[:] = self.rho_e + self.rho_i
+        
+        if self.config.SMOOTH_DENSITY:
+            smooth_density_cylindrical(self.rho, self.config.N_SMOOTHING_PASSES)
+            
         solve_poisson_cylindrical(
             self.rho,
             self.phi,
@@ -352,11 +356,18 @@ class PICSimulation:
         n_steps: int,
         n_burn_in: int,
         n_sampling: int,
+        n_initial_burn_in: int | None = None,
+        ramp_steps: int = 0,
         progress_cb: Callable[[int, int, float], None] | None = None,
     ) -> dict[str, np.ndarray]:
         """Sweep probe bias with warm start and return averaged I-V data."""
         if n_steps < 1:
             raise ValueError("n_steps must be >= 1")
+        if ramp_steps < 0:
+            raise ValueError("ramp_steps must be >= 0")
+
+        if n_initial_burn_in is None:
+            n_initial_burn_in = n_burn_in
 
         voltages = np.linspace(v_start, v_end, n_steps)
         i_total = np.zeros(n_steps)
@@ -364,10 +375,20 @@ class PICSimulation:
         i_i = np.zeros(n_steps)
 
         for idx, v in enumerate(voltages):
+            if idx > 0 and ramp_steps > 0:
+                prev_v = float(voltages[idx - 1])
+                for step_idx in range(ramp_steps):
+                    frac = (step_idx + 1) / ramp_steps
+                    self.v_bias = prev_v + frac * (float(v) - prev_v)
+                    self._update_fields()
+                    self.step()
+
             self.v_bias = float(v)
             self._update_fields()
 
-            for _ in range(n_burn_in):
+            # First step often needs longer to settle from initial conditions
+            steps_to_burn = n_initial_burn_in if idx == 0 else n_burn_in
+            for _ in range(steps_to_burn):
                 self.step()
 
             acc_e = 0.0
