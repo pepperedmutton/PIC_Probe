@@ -4,11 +4,19 @@ import math
 import warnings
 from typing import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
-from core.collisions import perform_mcc_electron, perform_mcc_ion
+from core.collisions import perform_coulomb_scatter, perform_mcc_electron, perform_mcc_ion
 from core.config import Config
+from core.cross_sections import (
+    build_constant_electron_tables,
+    build_constant_ion_tables,
+    build_electron_tables_from_lxcat,
+    build_ion_tables_from_lxcat,
+    load_cross_sections_from_custom_file,
+)
 from core.fields import compute_electric_field, solve_poisson_cylindrical, smooth_density_cylindrical
 from core.particles import compute_shell_volumes, push_particles, weight_charge_cic
 
@@ -34,9 +42,11 @@ class PICSimulation:
         sigma_cex: float = 1.0e-18,
         seed: int | None = None,
         probe_length: float = 1.0,
+        headroom_factor: float = 0.2,
     ) -> None:
         self.config = config
-        self.n_particles = n_particles
+        self.n_nominal = n_particles
+        self.n_particles = int(n_particles * (1.0 + headroom_factor))
         self.v_bias = v_bias
         self.probe_length = probe_length
         self.reflect_wall = reflect_wall
@@ -66,12 +76,12 @@ class PICSimulation:
         self.vol = np.zeros(self.n_nodes)
         compute_shell_volumes(self.r_min, self.dr, self.vol)
 
-        self.r_e = np.zeros(n_particles)
-        self.vr_e = np.zeros(n_particles)
-        self.vt_e = np.zeros(n_particles)
-        self.r_i = np.zeros(n_particles)
-        self.vr_i = np.zeros(n_particles)
-        self.vt_i = np.zeros(n_particles)
+        self.r_e = np.zeros(self.n_particles)
+        self.vr_e = np.zeros(self.n_particles)
+        self.vt_e = np.zeros(self.n_particles)
+        self.r_i = np.zeros(self.n_particles)
+        self.vr_i = np.zeros(self.n_particles)
+        self.vt_i = np.zeros(self.n_particles)
 
         self.vth_e = math.sqrt(config.e * config.Te / config.m_e)
         self.vth_i = math.sqrt(config.e * config.Ti / config.m_i)
@@ -80,8 +90,8 @@ class PICSimulation:
         self.q_weight = self._compute_macro_weight()
         self.qe = -config.e * self.q_weight
         self.qi = config.e * self.q_weight
-        self.qe_arr = np.full(n_particles, self.qe)
-        self.qi_arr = np.full(n_particles, self.qi)
+        self.qe_arr = np.full(self.n_particles, self.qe)
+        self.qi_arr = np.full(self.n_particles, self.qi)
 
         self.n_g, self.vth_gas = self._compute_neutral_properties()
         self.inject_target_e = self._compute_injection_target_maxwellian(self.vth_e)
@@ -98,13 +108,107 @@ class PICSimulation:
         self.sigma_en_ion = config.SIGMA_EN_ION
         self.e_exc_j = config.E_EXC_EV * config.e
         self.e_ion_j = config.E_ION_EV * config.e
+        self.enable_secondaries = config.ENABLE_IONIZATION_SECONDARIES
+        self.enable_ion_elastic = config.ENABLE_ION_NEUTRAL_ELASTIC
+        self.enable_coulomb = config.ENABLE_COULOMB_COLLISIONS
+
+        self._load_cross_sections()
+
+        self.ionized = np.zeros(self.n_particles, dtype=np.int8)
+        self.sec_energy_ev = np.zeros(self.n_particles)
+
+        self.nu_ei = self._compute_coulomb_frequency_ei() if self.enable_coulomb else 0.0
+        self.nu_ii = self._compute_coulomb_frequency_ii() if self.enable_coulomb else 0.0
 
         self._initialize_particles()
         self._update_fields()
 
+    def _load_cross_sections(self) -> None:
+        """Load energy-dependent cross sections (LXCat) or fall back to constants."""
+        target = self.config.CROSS_SECTION_TARGET
+
+        def resolve_path(path_str: str) -> str:
+            path = Path(path_str)
+            if path.is_absolute():
+                return str(path)
+            root = Path(__file__).resolve().parents[1]
+            return str(root / path)
+
+        if self.config.LXCAT_ELECTRON_FILE == "CS.txt" and self.config.LXCAT_ION_FILE == "CS.txt":
+            # High-priority custom loading for CS.txt
+            electron_tables, ion_tables = load_cross_sections_from_custom_file(
+                resolve_path("CS.txt"),
+                e_max=self.config.EN_CS_E_MAX,
+                n_bins=self.config.EN_CS_N,
+            )
+        else:
+            if self.config.LXCAT_ELECTRON_FILE:
+                electron_tables = build_electron_tables_from_lxcat(
+                    resolve_path(self.config.LXCAT_ELECTRON_FILE),
+                    target=target,
+                    e_max=self.config.EN_CS_E_MAX,
+                    n_bins=self.config.EN_CS_N,
+                )
+            else:
+                electron_tables = build_constant_electron_tables(
+                    self.config.SIGMA_EN_ELASTIC,
+                    self.config.SIGMA_EN_EXC,
+                    self.config.SIGMA_EN_ION,
+                    e_max=self.config.EN_CS_E_MAX,
+                    n_bins=self.config.EN_CS_N,
+                )
+
+            if self.config.LXCAT_ION_FILE:
+                ion_tables = build_ion_tables_from_lxcat(
+                    resolve_path(self.config.LXCAT_ION_FILE),
+                    target=target,
+                    e_max=self.config.ION_CS_E_MAX,
+                    n_bins=self.config.ION_CS_N,
+                    fallback_cex=self.sigma_cex,
+                )
+            else:
+                ion_tables = build_constant_ion_tables(
+                    sigma_cex=self.sigma_cex,
+                    sigma_elastic=self.config.SIGMA_IN_ELASTIC,
+                    e_max=self.config.ION_CS_E_MAX,
+                    n_bins=self.config.ION_CS_N,
+                )
+
+        if not self.enable_ion_elastic:
+            ion_tables = ion_tables.__class__(
+                e_min=ion_tables.e_min,
+                inv_de=ion_tables.inv_de,
+                sigma_cex=ion_tables.sigma_cex,
+                sigma_elastic=np.zeros_like(ion_tables.sigma_elastic),
+            )
+
+        self.en_e_min = electron_tables.e_min
+        self.en_inv_de = electron_tables.inv_de
+        self.en_sigma_elastic = electron_tables.sigma_elastic
+        self.en_sigma_exc = electron_tables.sigma_excitation
+        self.en_sigma_ion = electron_tables.sigma_ionization
+
+        self.ion_e_min = ion_tables.e_min
+        self.ion_inv_de = ion_tables.inv_de
+        self.ion_sigma_cex = ion_tables.sigma_cex
+        self.ion_sigma_elastic = ion_tables.sigma_elastic
+
+    def _compute_coulomb_frequency_ei(self) -> float:
+        """NRL formulary-style electron-ion collision frequency (s^-1)."""
+        n_cm3 = self.config.N0 * 1.0e-6
+        te = max(self.config.Te, 1.0e-3)
+        return 2.91e-6 * n_cm3 * self.config.COULOMB_LOG / (te ** 1.5)
+
+    def _compute_coulomb_frequency_ii(self) -> float:
+        """NRL formulary-style ion-ion collision frequency (s^-1)."""
+        n_cm3 = self.config.N0 * 1.0e-6
+        ti = max(self.config.Ti, 1.0e-4)
+        mu = self.config.m_i / self.config.m_p
+        return 4.80e-8 * n_cm3 * self.config.COULOMB_LOG / (ti ** 1.5 * math.sqrt(mu))
+
     def _compute_macro_weight(self) -> float:
         area = math.pi * (self.r_max * self.r_max - self.r_min * self.r_min)
-        return self.config.N0 * area / float(self.n_particles)
+        return self.config.N0 * area / float(self.n_nominal)
 
     def _compute_neutral_properties(self) -> tuple[float, float]:
         p_pa = self.config.P_Torr * 133.322368
@@ -151,12 +255,12 @@ class PICSimulation:
         phi[mask] = self.v_bias + (self.config.V_WALL - self.v_bias) * np.power(xi, 4.0 / 3.0)
         return phi
 
-    def _sample_positions_from_density(self, n_profile: np.ndarray) -> np.ndarray:
+    def _sample_positions_from_density(self, n_profile: np.ndarray, n_samples: int) -> np.ndarray:
         weights = n_profile * self.r_grid
         cdf = np.cumsum(weights)
         total = cdf[-1] if cdf[-1] > 0.0 else 1.0
         cdf /= total
-        u = np.random.random(self.n_particles)
+        u = np.random.random(n_samples)
         return np.interp(u, cdf, self.r_grid)
 
     def _initialize_particles(self) -> None:
@@ -175,8 +279,9 @@ class PICSimulation:
         n_i = n0 * u_b / v_i
         n_i = np.clip(n_i, n0 * 1.0e-3, n0)
 
-        self.r_e[:] = self._sample_positions_from_density(n_e)
-        self.r_i[:] = self._sample_positions_from_density(n_i)
+        self.r_e[:self.n_nominal] = self._sample_positions_from_density(n_e, self.n_nominal)
+        self.r_i[:self.n_nominal] = self._sample_positions_from_density(n_i, self.n_nominal)
+
 
         self.vr_e[:] = np.random.normal(0.0, self.vth_e, self.n_particles)
         self.vt_e[:] = np.random.normal(0.0, self.vth_e, self.n_particles)
@@ -289,22 +394,29 @@ class PICSimulation:
             self.reflect_wall,
         )
 
-        if self.sigma_en_elastic > 0.0 or self.sigma_en_exc > 0.0 or self.sigma_en_ion > 0.0:
-            perform_mcc_electron(
-                self.r_e,
-                self.vr_e,
-                self.vt_e,
-                self.r_min,
-                self.r_max,
-                self.n_g,
-                self.sigma_en_elastic,
-                self.sigma_en_exc,
-                self.sigma_en_ion,
-                self.dt,
-                self.config.m_e,
-                self.e_exc_j,
-                self.e_ion_j,
-            )
+        perform_mcc_electron(
+            self.r_e,
+            self.vr_e,
+            self.vt_e,
+            self.r_min,
+            self.r_max,
+            self.n_g,
+            self.en_sigma_elastic,
+            self.en_sigma_exc,
+            self.en_sigma_ion,
+            self.dt,
+            self.config.m_e,
+            self.e_exc_j,
+            self.e_ion_j,
+            self.en_e_min,
+            self.en_inv_de,
+            self.config.e,
+            self.ionized,
+            self.sec_energy_ev,
+        )
+
+        if self.enable_secondaries:
+            self._spawn_ionization_secondaries()
 
         perform_mcc_ion(
             self.r_i,
@@ -313,13 +425,69 @@ class PICSimulation:
             self.r_min,
             self.r_max,
             self.n_g,
-            self.sigma_cex,
+            self.ion_sigma_cex,
+            self.ion_sigma_elastic,
             self.dt,
             self.vth_gas,
+            self.ion_e_min,
+            self.ion_inv_de,
+            self.config.e,
+            self.config.m_i,
         )
+
+        if self.enable_coulomb:
+            perform_coulomb_scatter(
+                self.r_e,
+                self.vr_e,
+                self.vt_e,
+                self.r_min,
+                self.r_max,
+                self.nu_ei,
+                self.dt,
+            )
+            perform_coulomb_scatter(
+                self.r_i,
+                self.vr_i,
+                self.vt_i,
+                self.r_min,
+                self.r_max,
+                self.nu_ii,
+                self.dt,
+            )
 
         self._update_fields()
         return e_hits, i_hits
+
+    def _spawn_ionization_secondaries(self) -> None:
+        ionized_idx = np.flatnonzero(self.ionized)
+        if ionized_idx.size == 0:
+            return
+
+        dead_e = np.flatnonzero((self.r_e <= self.r_min) | (self.r_e >= self.r_max))
+        dead_i = np.flatnonzero((self.r_i <= self.r_min) | (self.r_i >= self.r_max))
+        n_new = min(ionized_idx.size, dead_e.size, dead_i.size)
+        if n_new <= 0:
+            return
+
+        if ionized_idx.size > n_new:
+            ionized_idx = ionized_idx[np.random.permutation(ionized_idx.size)[:n_new]]
+        if dead_e.size > n_new:
+            dead_e = dead_e[np.random.permutation(dead_e.size)[:n_new]]
+        if dead_i.size > n_new:
+            dead_i = dead_i[np.random.permutation(dead_i.size)[:n_new]]
+
+        r_new = self.r_e[ionized_idx]
+        self.r_e[dead_e] = r_new
+        self.r_i[dead_i] = r_new
+
+        sec_energy = self.sec_energy_ev[ionized_idx]
+        speed = np.sqrt(2.0 * self.config.e * sec_energy / self.config.m_e)
+        angles = 2.0 * math.pi * np.random.random(n_new)
+        self.vr_e[dead_e] = speed * np.cos(angles)
+        self.vt_e[dead_e] = speed * np.sin(angles)
+
+        self.vr_i[dead_i] = np.random.normal(0.0, self.vth_gas, n_new)
+        self.vt_i[dead_i] = np.random.normal(0.0, self.vth_gas, n_new)
 
     def run(self, n_steps: int = 2000, n_warmup: int = 1000) -> SimulationResult:
         current_sum = 0.0

@@ -10,6 +10,7 @@ class Config:
     e: float = 1.602176634e-19
     m_e: float = 9.1093837015e-31
     m_i: float = 6.6335209e-26  # Argon ion mass (Ar+)
+    m_p: float = 1.67262192369e-27
     epsilon_0: float = 8.8541878128e-12
     k_B: float = 1.380649e-23
 
@@ -28,10 +29,25 @@ class Config:
     SIGMA_EN_ELASTIC: float = 4.0e-20
     SIGMA_EN_EXC: float = 2.0e-20
     SIGMA_EN_ION: float = 1.0e-20
+    SIGMA_IN_ELASTIC: float = 0.0
     E_EXC_EV: float = 11.6
     E_ION_EV: float = 15.8
-    E_ION_EV: float = 15.8
     ION_INJECTION_BOHM: bool = True
+
+    # Energy-dependent cross-section tables (LXCat text files)
+    CROSS_SECTION_TARGET: str = "Ar"
+    LXCAT_ELECTRON_FILE: str | None = "CS.txt"
+    LXCAT_ION_FILE: str | None = "CS.txt"
+    EN_CS_E_MAX: float = 200.0
+    EN_CS_N: int = 2001
+    ION_CS_E_MAX: float = 200.0
+    ION_CS_N: int = 2001
+
+    # Collision feature toggles
+    ENABLE_IONIZATION_SECONDARIES: bool = True
+    ENABLE_ION_NEUTRAL_ELASTIC: bool = True
+    ENABLE_COULOMB_COLLISIONS: bool = False
+    COULOMB_LOG: float = 10.0
     
     # Numerical stability features
     SMOOTH_DENSITY: bool = False

@@ -17,7 +17,7 @@ from core.simulation import PICSimulation
 
 
 def ensure_results_dir() -> Path:
-    out_dir = ROOT / "results"
+    out_dir = ROOT / "results" / "benchmarks"
     out_dir.mkdir(exist_ok=True)
     return out_dir
 
@@ -228,52 +228,59 @@ def test_oml_regime(out_dir: Path) -> float:
     return r2
 
 
+
 def test_collisional_damping(out_dir: Path) -> float:
     print("\n[Test 4/4] Running collisional damping test...")
     print("  This test may take several minutes...")
     pressure_list = np.array([0.0, 0.1, 0.5, 1.0, 3.0, 5.0, 10.0])
+    i_ion_list = []
 
-    cfg = Config(
-        N_CELLS=160,
-        DT=1.0e-11,
-        R_MIN=1.5e-4,
-        R_MAX=1.0e-2,
-        N0=1.0e16,
-        Te=2.0,
-        Ti=0.026,
-        P_Torr=0.0,
-        V_WALL=0.0,
-    )
-
-    sim = PICSimulation(
-        cfg,
-        n_particles=30000,
-        v_bias=-40.0,
-        probe_length=1.0,
-        sigma_cex=8.0e-18,
-        seed=22,
-    )
-
-    t_gas_k = 300.0
-    sim.vth_gas = np.sqrt(cfg.k_B * t_gas_k / cfg.m_i)
-
-    burn_in = 5000
-    sampling = 5000
-    i_ion = np.zeros(pressure_list.shape[0])
-
+    # Config parameters common to all runs
+    n_cells = 160
+    r_min = 1.5e-4
+    r_max = 1.0e-2
+    n0 = 1.0e16
+    
     for idx, p in enumerate(pressure_list):
-        sim.n_g = neutral_density_from_torr(float(p), t_gas_k)
+        # Create a fresh configuration for each pressure point
+        cfg = Config(
+            N_CELLS=n_cells,
+            DT=1.0e-11,
+            R_MIN=r_min,
+            R_MAX=r_max,
+            N0=n0,
+            Te=2.0,
+            Ti=0.026,
+            P_Torr=float(p),
+            V_WALL=0.0,
+            LXCAT_ELECTRON_FILE="CS.txt",
+            LXCAT_ION_FILE="CS.txt"
+        )
 
-        for _ in range(burn_in):
-            sim.step()
+        sim = PICSimulation(
+            cfg,
+            n_particles=20000,
+            v_bias=-40.0,
+            probe_length=1.0,
+            sigma_cex=8.0e-18,
+            seed=22 + idx, # Vary seed slightly or keep shedding? 
+                           # Use consistent seed logic or distinct? 
+                           # Distinct avoids correlation. 22+idx is fine.
+        )
+        
+        # Burn in and run using the internal loop which is proven to work
+        # Use n_warmup=1000, n_steps=5000 total (so 4000 sampling)
+        res = sim.run(n_steps=5000, n_warmup=1000)
+        
+        # At -40V, electron current is negligible, so Total Current ~= Ion Current (magnitude)
+        # sim.run() returns avg_current = (I_e - I_i). 
+        # So I_ion = -avg_current. We take abs() to be safe.
+        i_curr = abs(res.avg_current)
+        
+        i_ion_list.append(i_curr)
+        print(f"  P = {p:>4.1f} Torr -> I_ion = {i_curr:.3e} A/m")
 
-        acc_i = 0.0
-        for _ in range(sampling):
-            _, i_hits = sim.step()
-            acc_i += (i_hits * sim.qi) / sim.dt
-
-        i_ion[idx] = acc_i / sampling
-        print(f"  P = {p:>4.1f} Torr -> I_ion = {i_ion[idx]:.3e} A/m")
+    i_ion = np.array(i_ion_list)
 
     fig, ax = plt.subplots(figsize=(7.0, 4.0))
     ax.plot(pressure_list, i_ion, marker="o", color="#2b6f73", linewidth=2.0)
