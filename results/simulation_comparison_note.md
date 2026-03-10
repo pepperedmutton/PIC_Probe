@@ -5,6 +5,7 @@
 
 ## 2. 本次仿真数据（基准）
 数据文件：`results/test_runs/iv_curve_20260310_110921.csv`
+生成脚本：`run_physics_accurate.py`（时间戳命名输出）
 
 关键统计：
 - 电压范围：`-30` 到 `100` V（14 点）

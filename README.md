@@ -61,10 +61,11 @@ PICSIMU/
     simulation.py     # Main PIC loop: inject->push->collide->weight->solve
   frontend/
     app.py            # Streamlit UI + plotting
+  benchmarks.py       # Physics benchmark suite
+  run_physics_accurate.py  # Main CLI test/generation entry
   README.md
   README_HUMAN.md
   README_HUMAN_CN.md
-  agent.md
 ```
 
 ## Physics model summary
@@ -343,8 +344,9 @@ PICSIMU/
     simulation.py     # 主循环 + 扫描电压
   frontend/
     app.py            # Streamlit 前端
+  benchmarks.py       # 物理基准测试入口
+  run_physics_accurate.py  # 主命令行测试/数据生成入口
   README.md          # 本文档
-  agent.md
 ```
 
 核心架构原则：
@@ -693,6 +695,10 @@ Streamlit UI：
 streamlit run frontend/app.py
 ```
 
+推荐的根目录命令行脚本入口：
+- `benchmarks.py`：物理基准测试套件
+- `run_physics_accurate.py`：当前主测试/数据生成脚本
+
 ## 9.1 使用 LXCat 碰撞截面（可选）
 
 为避免版权与许可问题，本仓库不内置 LXCat 数据。若需要能量依赖截面：
@@ -718,6 +724,8 @@ streamlit run frontend/app.py
 - `core/collisions.py`：CEX + 电子-中性 MCC  
 - `core/simulation.py`：主循环与电压扫描  
 - `frontend/app.py`：UI 输入与 I‑V 曲线绘制  
+- `benchmarks.py`：基准测试主入口
+- `run_physics_accurate.py`：命令行测试与数据生成主入口
 
 ---
 

@@ -27,8 +27,13 @@ least a DeepSeekR1 core.
 
 - `core/`: Numba-accelerated physics engine
 - `frontend/`: Streamlit UI for configuration and plots
+- `benchmarks.py`: benchmark-suite CLI entry
+- `run_physics_accurate.py`: primary CLI test/data-generation entry
 - `results/`: benchmark outputs and example curves
 - `README.md`: full technical / AI-facing documentation
+
+Legacy root-level experiment/debug scripts have been removed to keep the repo
+focused on canonical entry points.
 
 ## Quick start
 
@@ -81,13 +86,17 @@ print(res.avg_current)
 - 1D radial cylindrical geometry, no axial/azimuthal spatial variation
 - Electrostatic approximation only (no magnetic fields)
 - Species are electrons and singly charged ions (argon)
-- Collisions include ion-neutral CEX and simplified electron-neutral losses (no secondaries)
+- Collisions include ion-neutral CEX + elastic scattering and electron-neutral processes
+- Energy-dependent cross sections supported via LXCat tables (optional)
+- Electron-impact ionization can spawn secondary e-/ion macro-particles (optional)
 - Probe and wall are absorbing; outer boundary injects particles to maintain density
 
 ## Key limitations
 
 - 1D radial model only (no axial/azimuthal spatial variation)
-- Simplified collision models and no secondary particle creation
+- Collision models remain simplified (e.g., no energy-dependent data unless LXCat tables supplied)
+
+Note: the default config will attempt to read `CS.txt` in the repo root as a local LXCat export if present.
 - Electrostatic approximation (no magnetic fields)
 
 For full technical details, see `README.md`.
