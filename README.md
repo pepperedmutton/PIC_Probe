@@ -202,34 +202,77 @@ The simulation has been validated against four key physical benchmarks:
 
 For detailed benchmark documentation, see the "物理模型校准说明" section in this README.
 
-## Experimental Cross-Check (Hydrogen, Normalized)
+## Experimental Cross-Check (Hydrogen, 0.15 mm Probe, 2026-03-11)
 
 To anchor simulation realism with published data, we performed a direct
 hydrogen I-V comparison against:
 
 - Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
+  (Figure 1, clean H-plasma curve)
 
-Comparison setup:
-- Simulation file: `results/test_runs/iv_curve_20260310_110921.csv`
-- Simulation condition: H plasma, `P = 0.3 Pa`, `n_e = 1e16 m^-3`, `Te = 1.0 eV`,
-  probe diameter `0.4 mm`
-- Experimental probe diameter is `0.15 mm` (length `10 mm`)
-- Figure-1 clean-plasma current at `+80 V` is read as approximately `13.5 mA`
-  (image-read estimate)
+### Simulation setup (tuned for shape/scale match)
 
-Diameter normalization (first-order):
-- `I_norm = I_exp * (d_sim / d_exp) = 13.5 mA * (0.4 / 0.15) = 36.0 mA`
-- In per-length form (`L = 10 mm`): `I_norm ≈ 3.6 A/m`
+- Probe geometry: diameter `0.15 mm`, length `10 mm`
+  (`R_MIN = 7.5e-5 m`, `probe_length = 0.01 m`)
+- Domain: `R_MAX = 2.0e-3 m`, `N_CELLS = 220`
+- Pressure: `0.08 Pa` (`8e-4 mbar`)
+- Species: hydrogen ion mass `m_i = 1.67262192369e-27 kg`
+- Voltage sweep: `-30 V` to `+80 V`, 12 points
+- Tuned plasma/model knobs:
+  - `N0 = 9.6e15 m^-3`
+  - `Te = 0.6432 eV`
+  - `Ti = 0.2167 eV`
+  - `V_WALL = -9.0938 V`
+  - `sigma_cex = 1.7e-19 m^2`
+  - `ION_INJECTION_BOHM = False`
+- Numerical run controls:
+  - `n_particles = 6000` (per species)
+  - `n_initial_burn_in = 2800`
+  - `n_burn_in = 1500`
+  - `n_sampling = 2200`
+  - `ramp_steps = 180`
+  - `seed = 20260314`
+  - Adaptive stability enabled (`ADAPTIVE_STABILITY = True`)
+  - Runtime end state: `dr = 8.75e-6 m`, `dt = 1.890431e-12 s`
 
-Result:
-- Simulation at `+80 V`: `I_sim ≈ 2.700 A/m`
-- Relative gap vs normalized experimental point: ~25%
+### Output artifacts
 
-Interpretation:
-- This is considered acceptable first-order agreement for current model scope
-  (different pressure, chemistry simplifications, and figure-read uncertainty).
-- The hydrogen low-pressure I-V trend and current scale are treated as validated
-  enough for the next engineering phase.
+- Data: `results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.csv`
+- Figure: `results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.png`
+
+### Comparison plot
+
+![Kakati comparison (0.15 mm probe)](results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.png)
+
+### Quantitative comparison
+
+Experimental points are approximate image-read values from Figure 1 (no raw table
+provided in the paper). The simulation was tuned to match overall trend and
+current scale.
+
+- RMSE over 12 sweep points: `0.904 mA`
+- At `0 V`: simulation `4.296 mA`, experiment `~4.0 mA`
+- At `+80 V`: simulation `12.453 mA`, experiment `~13.5 mA`
+
+| V (V) | I_sim (mA) | I_exp, Fig.1 approx (mA) |
+|---:|---:|---:|
+| -30 | -0.202 | -0.700 |
+| -20 | -0.170 | -0.200 |
+| -10 | 0.196 | 1.800 |
+| 0 | 4.296 | 4.000 |
+| 10 | 6.578 | 6.000 |
+| 20 | 7.836 | 7.500 |
+| 30 | 8.441 | 8.800 |
+| 40 | 9.736 | 10.000 |
+| 50 | 10.462 | 11.200 |
+| 60 | 10.620 | 12.100 |
+| 70 | 11.347 | 12.900 |
+| 80 | 12.453 | 13.500 |
+
+Notes:
+- `Te` and `N0` were treated as fit knobs for curve matching in this step.
+- The fit target here is experimental curve morphology and magnitude, not strict
+  parameter-identification faithfulness.
 
 ## Next Mission Statement (Production + GPU)
 

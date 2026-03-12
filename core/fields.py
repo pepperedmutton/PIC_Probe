@@ -15,8 +15,20 @@ def solve_poisson_cylindrical(
     epsilon_0: float,
     v_bias: float,
     v_wall: float,
+    outer_neumann: bool = False,
+    outer_dphi_dr: float = 0.0,
+    outer_self_consistent: bool = False,
 ) -> None:
-    """Solve cylindrical Poisson equation with Dirichlet BCs using TDMA."""
+    """Solve cylindrical Poisson equation using TDMA.
+
+    Boundary conditions:
+    - Inner boundary (`r_min`): Dirichlet `phi = v_bias`
+    - Outer boundary (`r_max`):
+      - Self-consistent extrapolation `phi_{N} = 2*phi_{N-1} - phi_{N-2}`
+        when `outer_self_consistent=True`
+      - Dirichlet `phi = v_wall` when `outer_neumann=False`
+      - Neumann `dphi/dr = outer_dphi_dr` when `outer_neumann=True`
+    """
     n = rho.shape[0]
     if n == 0:
         return
@@ -24,7 +36,12 @@ def solve_poisson_cylindrical(
     phi[0] = v_bias
     if n == 1:
         return
-    phi[n - 1] = v_wall
+    if outer_self_consistent:
+        phi[n - 1] = phi[0]
+    elif outer_neumann:
+        phi[n - 1] = phi[n - 2] + outer_dphi_dr * dr
+    else:
+        phi[n - 1] = v_wall
     if n == 2:
         return
 
@@ -46,7 +63,17 @@ def solve_poisson_cylindrical(
         d[idx] = -rho[j] / epsilon_0
 
     d[0] -= a[0] * phi[0]
-    d[n_int - 1] -= c[n_int - 1] * phi[n - 1]
+    if outer_self_consistent:
+        last = n_int - 1
+        a[last] = a[last] - c[last]
+        b[last] = b[last] + 2.0 * c[last]
+        c[last] = 0.0
+    elif outer_neumann:
+        # phi_{n-1} = phi_{n-2} + outer_dphi_dr * dr
+        b[n_int - 1] += c[n_int - 1]
+        d[n_int - 1] -= c[n_int - 1] * outer_dphi_dr * dr
+    else:
+        d[n_int - 1] -= c[n_int - 1] * phi[n - 1]
 
     for i in range(1, n_int):
         w = a[i] / b[i - 1]
@@ -56,6 +83,13 @@ def solve_poisson_cylindrical(
     phi[n - 2] = d[n_int - 1] / b[n_int - 1]
     for i in range(n_int - 2, -1, -1):
         phi[i + 1] = (d[i] - c[i] * phi[i + 2]) / b[i]
+    if outer_self_consistent:
+        if n >= 3:
+            phi[n - 1] = 2.0 * phi[n - 2] - phi[n - 3]
+        else:
+            phi[n - 1] = phi[n - 2]
+    elif outer_neumann:
+        phi[n - 1] = phi[n - 2] + outer_dphi_dr * dr
 
 
 @jit(nopython=True)

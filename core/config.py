@@ -19,6 +19,17 @@ class Config:
     R_MIN: float = 5.0e-4
     R_MAX: float = 5.0e-2
     V_WALL: float = 0.0
+    WALL_BC_MODE: str = "bulk_plasma"  # "fixed", "floating_insulator", or "bulk_plasma"
+    WALL_PHI_INIT: float = 0.0
+    WALL_CAPACITANCE_PER_LENGTH: float = 0.0  # F/m, <=0 uses auto estimate
+    WALL_PHI_MIN: float = -500.0
+    WALL_PHI_MAX: float = 500.0
+    BULK_PHI_REF: float = 0.0
+    BULK_DPHI_DR: float = 0.0  # V/m, typically 0 for far-field bulk
+    BULK_SELF_CONSISTENT_OUTER: bool = True  # if True, infer outer boundary from interior solution
+    OUTER_BOUNDARY_INJECTION: bool = True
+    OUTER_INJECTION_MODE: str = "flux"  # "flux" or "fill_dead"
+    AUTO_DISABLE_INJECTION_FOR_INSULATOR: bool = True
 
     # Plasma parameters
     N0: float = 1.0e16
@@ -30,12 +41,33 @@ class Config:
     SIGMA_EN_ION: float = 1.0e-20
     E_EXC_EV: float = 11.6
     E_ION_EV: float = 15.8
-    E_ION_EV: float = 15.8
     ION_INJECTION_BOHM: bool = True
-    
+    ENABLE_IONIZATION_SECONDARIES: bool = True
+    IONIZATION_SECONDARIES_IN_BULK_ONLY: bool = True
+    SECONDARY_E_EV: float = 2.0
+    SECONDARY_I_EV: float = 0.05
+    MAX_IONIZATION_PAIRS_PER_STEP: int = 20000
+    ENABLE_BULK_FEEDBACK_SOURCE: bool = False
+    BULK_SOURCE_R_FRAC_MIN: float = 0.7
+    BULK_SOURCE_GAIN: float = 0.2
+    BULK_SOURCE_MAX_PAIRS_PER_STEP: int = 5000
+    BULK_SOURCE_REL_DEADBAND: float = 0.01
+
     # Numerical stability features
     SMOOTH_DENSITY: bool = False
     N_SMOOTHING_PASSES: int = 1
+    ADAPTIVE_STABILITY: bool = True
+    STABILITY_CHECK_EVERY: int = 1
+    GRID_REFINE_FACTOR: int = 2
+    MAX_N_CELLS: int = 5000
+    MAX_REFINEMENTS_PER_CHECK: int = 4
+    DT_SAFETY_FACTOR: float = 0.9
+    CFL_SAFETY_FACTOR: float = 0.95
+    CFL_PERCENTILE: float = 99.0
+    OMEGA_PE_LIMIT: float = 0.2
+    MIN_DT: float = 1.0e-14
+    USE_CUDA: bool = True
+    CUDA_THREADS_PER_BLOCK: int = 256
 
     @property
     def dr(self) -> float:

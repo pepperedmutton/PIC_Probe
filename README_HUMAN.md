@@ -100,3 +100,52 @@ Note: the default config will attempt to read `CS.txt` in the repo root as a loc
 - Electrostatic approximation (no magnetic fields)
 
 For full technical details, see `README.md`.
+
+## 2026-03-11 Kakati 2017 Comparison Update (0.15 mm Probe)
+
+Reference:
+- Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
+- Target trace: Figure 1 clean H-plasma I-V curve (image-read points)
+
+### Current simulation setup used for comparison
+
+- Probe geometry: diameter `0.15 mm`, length `10 mm`
+- Domain: `R_MIN = 7.5e-5 m`, `R_MAX = 2.0e-3 m`
+- Pressure: `0.08 Pa` (`8e-4 mbar`)
+- Sweep: `-30 V` to `+80 V`, 12 points
+- Tuned model knobs:
+  - `N0 = 9.6e15 m^-3`
+  - `Te = 0.6432 eV`
+  - `Ti = 0.2167 eV`
+  - `V_WALL = -9.0938 V`
+  - `sigma_cex = 1.7e-19 m^2`
+  - `ION_INJECTION_BOHM = False`
+- Numerical controls:
+  - `n_particles = 6000` (per species)
+  - `n_initial_burn_in = 2800`
+  - `n_burn_in = 1500`
+  - `n_sampling = 2200`
+  - `ramp_steps = 180`
+  - `seed = 20260314`
+  - `ADAPTIVE_STABILITY = True`
+  - End-of-run state: `dr = 8.75e-6 m`, `dt = 1.890431e-12 s`
+
+### Artifacts
+
+- Data: `results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.csv`
+- Plot: `results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.png`
+
+### Inline comparison plot
+
+![Kakati 2017 comparison (0.15 mm probe)](results/test_runs/iv_kakati_tuned_0p15mm_20260311_200007.png)
+
+### Result summary
+
+- RMSE over 12 points: `0.904 mA`
+- `0 V`: simulation `4.296 mA`, experiment `~4.0 mA`
+- `+80 V`: simulation `12.453 mA`, experiment `~13.5 mA`
+
+Note:
+- Experimental values are approximate image-read points from Figure 1 (no raw
+  table in the paper).
+- `Te` and `N0` were treated as fitting knobs for this curve-matching pass.
