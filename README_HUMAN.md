@@ -1,102 +1,103 @@
-# PICSIMU - Human Overview
+﻿# PICSIMU（人类快速说明）
 
-PICSIMU is a 1D cylindrical Particle-in-Cell simulation with Monte Carlo
-collisions (PIC-MCC) that produces Langmuir probe I-V curves for
-high-pressure, collisional plasmas. It exists to generate synthetic data and
-support plasma parameter inference where collisionless OML models break down.
+## 这是什么
 
-## Warning
+PICSIMU 是一个 1D 圆柱 PIC-MCC 仿真项目，用于生成高压碰撞条件下的朗缪尔探针 I-V 曲线。
+目标是产出可用于参数反演和机器学习训练的合成数据。
 
-Do not modify code manually. Code changes must be executed by an agent using at
-least a DeepSeekR1 core.
+## 当前测试口径
 
-## What it does
+- 氢等离子体
+- 压力：0.3 Pa
+- 密度：`1e16 m^-3`
+- 电子温度：`1 eV`
+- 探针直径：`0.4 mm`
 
-- Simulates the radial sheath around a cylindrical probe in 1D geometry
-- Tracks electrons and ions with angular momentum conservation
-- Solves the cylindrical Poisson equation with ion-neutral CEX and simplified electron-neutral collisions
-- Outputs I-V curves plus potential and density profiles
+## 能做什么
 
-## Why it exists
+- 扫描探针偏压，生成 I-V 曲线（总电流/电子/离子）
+- 输出电势与密度等诊断结果
+- 进行多次重复仿真并取均值，降低随机波动
+- 支持使用截面数据文件（`CS.txt`）
 
-- Extends Langmuir probe diagnostics into high-pressure regimes (1-200 Torr)
-- Generates synthetic data for ML-based parameter inference
-- Targets industrial and atmospheric-pressure plasma applications
+## 目录说明
 
-## Repository layout
+- `core/`：物理与数值核心
+- `frontend/`：可视化前端（Streamlit）
+- `benchmarks.py`：基准入口
+- `run_physics_accurate.py`：测试/数据生成入口
+- `results/test_runs/`：测试输出目录
 
-- `core/`: Numba-accelerated physics engine
-- `frontend/`: Streamlit UI for configuration and plots
-- `benchmarks.py`: benchmark-suite CLI entry
-- `run_physics_accurate.py`: primary CLI test/data-generation entry
-- `results/`: benchmark outputs and example curves
-- `README.md`: full technical / AI-facing documentation
+## 快速运行
 
-Legacy root-level experiment/debug scripts have been removed to keep the repo
-focused on canonical entry points.
+```powershell
+python run_physics_accurate.py
+```
 
-## Quick start
+如果你用前端：
 
 ```powershell
 streamlit run frontend/app.py
 ```
 
-Minimal CLI run (for a quick smoke test):
+## 输出文件
 
-```powershell
-@'
-from core.config import Config
-from core.simulation import PICSimulation
+I-V 数据保存到 `results/test_runs/`，采用时间戳命名，例如：
 
-cfg = Config()
-sim = PICSimulation(cfg, n_particles=2000, v_bias=-10.0, seed=1)
-res = sim.run(n_steps=200, n_warmup=100)
-print(res.avg_current)
-'@ | python -
-```
+- `iv_curve_20260310_110921.csv`
 
-## Typical inputs
+## 测试结果与 2017 论文对比
 
-- Pressure (Torr), density (m^-3), electron temperature (eV)
-- Probe bias voltage (V)
-- Numerical settings: grid cells, time step, particle count
+本次对比基于：
 
-## Outputs
+- 仿真数据：`results/test_runs/iv_curve_20260310_110921.csv`
+- 实验论文：Kakati et al., *Scientific Reports* 7, 490 (2017)
 
-- I-V curve data (total, electron, ion currents)
-- Potential and density profiles vs radius
-- Benchmark plots in `results/`
+同口径关键参数：
 
-## Validation status (high level)
+| 项目 | 本次仿真 | 2017 论文（clean plasma） |
+|---|---|---|
+| 压力 | 0.3 Pa | 约 0.04-0.2 Pa |
+| 探针直径 | 0.4 mm | 0.15 mm |
+| 探针长度 | 1 m（按 A/m 记） | 10 mm |
+| `n_e` | 设定 `1e16 m^-3` | 约 `1e16` 到 `4.5e16 m^-3` |
+| `T_e` | 设定 1 eV | 约 0.6-1.2 eV |
 
-- Poisson solver: passed vacuum cylindrical capacitor test
-- Electron temperature check: passed (Te ≈ 2.02 eV)
-- OML ion dynamics: passed (R² = 0.993 for I_i^2 vs |V|)
-- Collisional damping: passed (ion current suppression with pressure)
+选取 `+80 V` 对比点：
 
-## Benchmarks (what they check)
+- 论文图上电流读数约 `13.5 mA`（读图估计）
+- 按探针直径归一化到 0.4 mm：  
+  `13.5 mA * (0.4 / 0.15) = 36.0 mA`
+- 再按论文探针长度 10 mm 换算：`3.6 A/m`
+- 仿真在 `+80 V` 的电流：`2.700 A/m`
+- 归一化后相对差异：约 `25%`
 
-- Vacuum cylindrical capacitor: validates the Poisson solver and the 1/r geometry term
-- Electron temperature check: verifies velocity sampling and the Boltzmann relation in the retarding region
-- OML ion dynamics: checks angular momentum conservation and I_i^2 ∝ |V| behavior
-- Collisional damping: checks ion current suppression vs pressure (CEX)
+图像对照（压缩后内联）：
 
-## Model assumptions (brief)
+- 仿真 I-V 图（压缩版，WEBP，约 23 KB）
 
-- 1D radial cylindrical geometry, no axial/azimuthal spatial variation
-- Electrostatic approximation only (no magnetic fields)
-- Species are electrons and singly charged ions (argon)
-- Collisions include ion-neutral CEX + elastic scattering and electron-neutral processes
-- Energy-dependent cross sections supported via LXCat tables (optional)
-- Electron-impact ionization can spawn secondary e-/ion macro-particles (optional)
-- Probe and wall are absorbing; outer boundary injects particles to maintain density
+![仿真 I-V（压缩）](assets/readme/iv_curve_20260310_110921_compressed.webp)
 
-## Key limitations
+- 2017 论文图（压缩版，WEBP，约 21 KB）
 
-- 1D radial model only (no axial/azimuthal spatial variation)
-- Collision models remain simplified (e.g., no energy-dependent data unless LXCat tables supplied)
+![2017 论文图（压缩）](assets/readme/fig1_2017_compressed.webp)
 
-Note: the default config will attempt to read `CS.txt` in the repo root as a local LXCat export if present.
-- Electrostatic approximation (no magnetic fields)
+结论（当前口径）：
 
-For full technical details, see `README.md`.
+- I-V 形状与量级已达到一阶一致；
+- 仍存在约 25% 差异，主要受探针尺寸、压力区间、读图误差与模型简化影响。
+
+## 如何看“是否靠谱”
+
+- 先看基准项是否通过（Poisson、温度、OML、碰撞阻尼）
+- 再看与实验口径是否一致（压力、探针尺寸、`n_e`、`T_e`、I-V 区间）
+- 最后对比归一化结果，避免直接比绝对电流
+
+对照说明文档：`results/simulation_comparison_note.md`
+
+## 文档分工
+
+仓库仅保留两份 README（均为中文）：
+
+- `README.md`：Agent 技术文档（详细）
+- `README_HUMAN.md`：人类快速说明（本文件）

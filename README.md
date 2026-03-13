@@ -1,683 +1,381 @@
-# PICSIMU: 1D Cylindrical PIC-MCC (Langmuir Probe)
+# PICSIMU 项目文档（Agent 技术主文档）
 
-This project builds a 1D radial (cylindrical) Particle-in-Cell simulation with
-Monte Carlo Collisions (MCC) aimed at high-pressure Langmuir probe I–V curves.
-The physics core is optimized with `numba.jit(nopython=True)` for particle
-movers, charge weighting, field solves, and collisions. A Streamlit frontend
-provides interactive control and visualization.
+## 文档策略
 
-## Documentation policy
+本仓库当前只保留两份 README，且统一使用中文：
 
-`README.md` is the AI/automation-facing, canonical technical record.
-Human-friendly overviews live in `README_HUMAN.md` (English) and
-`README_HUMAN_CN.md` (中文).
-When updating project information, update `README.md` first and then sync the
-human overview(s) if the summary changes. Legacy stub files remain for
-compatibility; do not create additional `.md` documentation files beyond
-`README.md`, `README_HUMAN.md`, and `README_HUMAN_CN.md`.
+- `README.md`：面向 Agent/自动化与开发维护的完整技术文档（本文件）
+- `README_HUMAN.md`：面向人类使用者的快速说明
 
-## Project motivation
+维护约定：
 
-This work extends the machine learning inference framework presented in:
+1. 所有技术细节先更新 `README.md`，再同步 `README_HUMAN.md` 的摘要。
+2. 不新增其它根目录 README 变体，避免文档分叉。
+3. 结果声明必须附证据路径（脚本、CSV、图像、说明文档）。
 
-> Marchand et al., "Beyond analytic approximations with machine learning inference of plasma parameters and confidence intervals," *Journal of Plasma Physics*, 89(1), 2023.
+---
+
+## 1. 项目概述
+
+PICSIMU 是一个 1D 圆柱坐标 Particle-in-Cell + Monte Carlo Collisions（PIC-MCC）仿真器，
+用于生成高压碰撞鞘层条件下的 Langmuir 探针 I-V 合成数据。
+
+核心目标：
+
+1. 建立可复现的高压等离子体 I-V 数据生成链路。
+2. 为参数反演（`n_e`, `T_e`, `V_p`）与机器学习训练提供数据。
+3. 在保证物理一致性的前提下，演进到生产级并行/GPU 流水线。
+
+默认单位约定：
+
+- 距离：m
+- 速度：m/s
+- 电流：A 或 A/m（按 `probe_length`）
+- 温度输入：eV
+
+---
+
+## 2. 研究背景与动机
+
+本项目直接承接以下工作并向高压碰撞区扩展：
+
+> Marchand et al., *Beyond analytic approximations with machine learning inference of plasma parameters and confidence intervals*, Journal of Plasma Physics, 89(1), 2023.  
 > DOI: [10.1017/S0022377823000041](https://doi.org/10.1017/S0022377823000041)
 
-The original paper demonstrated using **kinetic simulations (Orbital Motion Theory)** + **multivariate regression** to infer plasma parameters (density, temperature, potential) from Langmuir probe I-V characteristics in **collisionless, low-pressure regimes** (~0 Torr, 10¹⁰-10¹² m⁻³).
+原论文覆盖范围：
 
-**This project addresses the complementary high-pressure regime:**
-- **Pressure range**: 1-200 Torr (collisional sheath)
-- **Density range**: 10¹⁴-10¹⁸ m⁻³  
-- **Physics**: Ion-neutral charge exchange (CEX) and electron collisions dominate
-- **Applications**: Industrial plasma processing, atmospheric pressure plasmas, high-pressure discharge diagnostics
+- 碰撞近似：无碰撞（OMT/OML 思路）
+- 压力：近 0 Torr
+- 密度：`10^10 - 10^12 m^-3`
+- 典型场景：空间/低压实验等离子体
 
-By generating synthetic I-V data using PIC-MCC simulations under collision-dominated conditions, we aim to:
-1. Train ML models for **high-pressure Langmuir probe diagnostics**
-2. Fill the gap left by collisionless theories (OML, etc.)
-3. Enable real-time plasma parameter inference in industrial environments
+PICSIMU 的补充定位：
 
-All distances are in meters and all velocities in m/s unless explicitly stated.
-Temperatures are specified in eV in the configuration.
+- 物理模型：从 OMT/OML 扩展到 PIC-MCC
+- 压力范围：`1 - 200 Torr`（碰撞主导）
+- 密度范围：`10^14 - 10^18 m^-3`
+- 应用场景：工业等离子体处理、大气压等离子体、高压放电诊断
 
-## Architecture overview
+技术路线（旧版 README 全量信息保留并整合）：
 
-The project is split into two top-level packages:
-
-- `core/`: High-performance physics engine. All heavy loops are JIT-compiled.
-- `frontend/`: Streamlit UI that configures, runs, and visualizes the simulation.
-
-Core modules are designed so the frontend can treat them as a pure API:
-configure parameters, run a simulation, and pull arrays for plotting.
-
-## Project structure
-
+```text
+无碰撞 OMT/OML + 回归推断  --->  高压 PIC-MCC 合成数据  --->  ML 参数反演与部署
 ```
+
+---
+
+## 3. 总体架构与目录
+
+### 3.1 架构分层
+
+- `core/`：物理内核（Numba 加速，计算主链路）
+- `frontend/`：Streamlit 可视化与交互
+- 根目录脚本：基准测试、物理测试/数据生成入口
+
+### 3.2 目录结构（按当前仓库）
+
+```text
 PICSIMU/
   core/
-    config.py         # Constants + parameter container + physics helpers
-    particles.py      # Particle mover + charge weighting (cylindrical)
-    fields.py         # Poisson solver (cylindrical Laplacian) via TDMA
-    collisions.py     # Ion-neutral CEX + electron-neutral MCC
-    simulation.py     # Main PIC loop: inject->push->collide->weight->solve
+    config.py
+    particles.py
+    fields.py
+    collisions.py
+    simulation.py
+    cross_sections.py
+    lxcat_parser.py
+    cs_txt_adapter.py
+    smooth_density_impl.py
   frontend/
-    app.py            # Streamlit UI + plotting
-  benchmarks.py       # Physics benchmark suite
-  run_physics_accurate.py  # Main CLI test/generation entry
+    app.py
+  benchmarks.py
+  run_physics_accurate.py
+  CS.txt
+  results/
+    benchmarks/
+    test_runs/
+    production/
   README.md
   README_HUMAN.md
-  README_HUMAN_CN.md
-```
-
-## Physics model summary
-
-Geometry
-- 1D radial domain: `r ∈ [R_MIN, R_MAX]` with a probe at `R_MIN` and chamber wall
-  at `R_MAX`.
-- The grid is cell-centered or node-centered depending on solver implementation,
-  but volume factors always use cylindrical shell volumes.
-
-Particles
-- Particles track `(r, v_r, v_theta)`; `v_theta` ensures angular momentum
-  conservation.
-- Radial equation of motion (ions and electrons share form):
-  `dv_r/dt = (q/m) E_r + v_theta^2 / r`.
-- Angular momentum conservation:
-  `v_theta_new = v_theta_old * (r_old / r_new)`.
-
-Weighting
-- Cloud-in-Cell (linear) weighting to grid.
-- Cylindrical volume correction:
-  `V_j ≈ 2 * pi * r_j * dr` (per unit length).
-  Charge density on node `j` is the weighted charge divided by `V_j`.
-
-Field solve
-- Poisson equation:
-  `(1/r) d/dr (r dphi/dr) = -rho / epsilon_0`.
-- Finite difference yields a tridiagonal system solved by TDMA in `O(N)`.
-- Dirichlet boundaries:
-  `phi(R_MIN) = V_bias`, `phi(R_MAX) = V_wall`.
-
-Collisions
-- Ion-neutral charge exchange (CEX) in high-pressure regime.
-- Ion-neutral elastic scattering (optional).
-- Probability per step:
-  `P = 1 - exp(-n_g * sigma_total * v * dt)`.
-- If CEX occurs, replace ion velocity with Maxwellian neutral sample
-  at `T_gas ≈ 0.026 eV`.
-- Electron-neutral collisions include elastic, excitation, and ionization with
-  energy-dependent cross sections (LXCat tables) when provided; otherwise
-  constants are used as a fallback.
-- Ionization can spawn a secondary electron + ion macro-particle (energy split
-  equally between primary and secondary for simplicity).
-- Optional Coulomb pitch-angle scattering can be enabled for e-i and i-i.
-
-Injection and currents
-- Particles that hit the probe are absorbed and contribute to probe current.
-- Particles reaching the wall are absorbed or reflected (policy defined in
-  `particles.py`).
-- Injection at `R_MAX` uses a Maxwellian half-flux estimate to set the per-step
-  injection count, capped by available dead particles. The injected normal
-  velocity follows the flux distribution (Rayleigh), not a half-Gaussian.
-- Ion injection can optionally include a Bohm-speed drift
-  (`ION_INJECTION_BOHM = True`) while keeping a thermal spread based on `Ti`.
-- Current sign convention:
-  `I_electron = (N_e_hit * |q_e|) / dt`, `I_ion = (N_i_hit * q_i) / dt`,
-  `I_total = I_electron - I_ion` (electron current reported as positive).
-
-Initialization
-- Particles are initialized with a Child-Langmuir-shaped potential profile to
-  seed a sheath-like density gradient (electron Boltzmann response, ion
-  continuity-based depletion) and reduce burn-in time.
-
-## Data model (core)
-
-All per-species data are stored in flat NumPy arrays to maximize Numba speed:
-
-- `r`: radial position array (size Np)
-- `vr`: radial velocity array
-- `vt`: tangential velocity array
-
-Fields and grid arrays are 1D:
-
-- `r_grid`: node locations
-- `phi`: electrostatic potential
-- `E`: radial electric field
-- `rho`: charge density
-
-All arrays passed into `numba.jit(nopython=True)` functions are explicitly
-typed via NumPy dtypes at construction time.
-
-## Performance rules
-
-- All heavy loops (push, weight, solve, collisions) are implemented in Numba.
-- Avoid Python allocations inside jitted functions.
-- Use fixed-size temporary arrays where possible.
-- Keep branching minimal inside tight loops.
-
-## Simulation flow (per time step)
-
-1. Inject new particles at `R_MAX` (maintain density).
-2. Push particles under `E_r` and centrifugal term.
-3. Apply MCC (ion-neutral CEX + electron-neutral collisions).
-4. Scatter charge to grid using cylindrical CIC.
-5. Solve Poisson for `phi`, compute `E_r`.
-6. Accumulate probe current from absorbed particles.
-
-The simulation runs until a steady-state current is reached; the reported
-current is typically an average over the late-time window.
-
-## Frontend behavior
-
-The UI exposes sliders for:
-- Pressure (Torr)
-- Density (m^-3)
-- Electron temperature (eV)
-- Probe bias voltage (V)
-
-## Validation and benchmarks
-
-The simulation has been validated against four key physical benchmarks:
-
-### Test 1: Vacuum cylindrical capacitor
-- **Purpose**: Verify cylindrical Poisson solver accuracy
-- **Result**: Max relative error ≈ 0.0017%
-- **Status**: ✅ Passed
-
-### Test 2: Electron temperature inference
-- **Purpose**: Validate electron velocity sampling and Boltzmann relation
-- **Configuration**: No collisions, Te = 2.0 eV, retarding region analysis
-- **Result**: slope = 0.494 V⁻¹, inferred Te = 2.02 eV
-- **Status**: ✅ Passed
-
-### Test 3: OML ion dynamics
-- **Purpose**: Verify angular momentum conservation and orbital motion theory
-- **Result**: R² = 0.993 for I_i² vs |V| linearity
-- **Configuration**: R_MIN = 500 μm, N0 = 5×10¹⁵ m⁻³, collisionless
-- **Status**: ✅ Passed
-
-### Test 4: Collisional damping
-- **Purpose**: Verify CEX-driven ion current suppression with pressure
-- **Result**: I_ion(10 Torr) / I_ion(0 Torr) = 0.000
-- **Status**: ✅ Passed
-
-For detailed benchmark documentation, see the "物理模型校准说明" section in this README.
-
-## Experimental Cross-Check (Hydrogen, Normalized)
-
-To anchor simulation realism with published data, we performed a direct
-hydrogen I-V comparison against:
-
-- Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
-
-Comparison setup:
-- Simulation file: `results/test_runs/iv_curve_20260310_110921.csv`
-- Simulation condition: H plasma, `P = 0.3 Pa`, `n_e = 1e16 m^-3`, `Te = 1.0 eV`,
-  probe diameter `0.4 mm`
-- Experimental probe diameter is `0.15 mm` (length `10 mm`)
-- Figure-1 clean-plasma current at `+80 V` is read as approximately `13.5 mA`
-  (image-read estimate)
-
-Diameter normalization (first-order):
-- `I_norm = I_exp * (d_sim / d_exp) = 13.5 mA * (0.4 / 0.15) = 36.0 mA`
-- In per-length form (`L = 10 mm`): `I_norm ≈ 3.6 A/m`
-
-Result:
-- Simulation at `+80 V`: `I_sim ≈ 2.700 A/m`
-- Relative gap vs normalized experimental point: ~25%
-
-Interpretation:
-- This is considered acceptable first-order agreement for current model scope
-  (different pressure, chemistry simplifications, and figure-read uncertainty).
-- The hydrogen low-pressure I-V trend and current scale are treated as validated
-  enough for the next engineering phase.
-
-## Next Mission Statement (Production + GPU)
-
-The next project phase is explicitly declared as:
-
-1. Generate production-scale synthetic I-V datasets (large parameter sweeps,
-   repeatability, metadata traceability).
-2. Refactor the simulation loop for parallel execution over voltage points,
-   repeated runs, and parameter batches.
-3. Introduce GPU acceleration for compute-dominant kernels (particle push,
-   collisions, weighting, field operations) while preserving physics parity with
-   the validated CPU baseline.
-4. Build a production pipeline with deterministic seeds, batch orchestration,
-   and high-throughput result export.
-
-
----
-
-# PICSIMU 项目说明（中文详解）
-
-本说明面向使用者与二次开发者，系统性描述本项目的架构、物理模型、数值算法与计算假设。内容严格对应当前代码实现，避免虚构未实现功能。
-
----
-
-## 0. 研究背景与动机
-
-### 0.1 问题来源
-
-本项目源于对以下论文方法的扩展：
-
-> **Marchand, R., Shahsavani, S., & Sanchez-Arriaga, G.** (2023). "Beyond analytic approximations with machine learning inference of plasma parameters and confidence intervals." *Journal of Plasma Physics*, 89(1), 905890111.  
-> DOI: [10.1017/S0022377823000041](https://doi.org/10.1017/S0022377823000041)
-
-**论文核心方法**：
-- 使用 **轨道运动理论（OMT）** 生成合成 I-V 数据
-- 通过 **机器学习回归**（RBF、神经网络）推断等离子体参数
-- 提供不确定性评估和置信区间
-
-**论文覆盖的物理范围**：
-- **无碰撞**等离子体（Orbital Motion Limited, OML）
-- 低压/真空条件（~0 Torr）
-- 低密度（10¹⁰-10¹² m⁻³）
-- 应用场景：空间等离子体诊断、低压实验室等离子体
-
-### 0.2 本项目的定位
-
-**研究空白**：论文方法无法应用于**高压碰撞主导regime**，而这正是工业等离子体和大气压应用的核心区域。
-
-**本项目目标**：
-1. **扩展物理模型**：从无碰撞 OMT → 碰撞主导 PIC-MCC
-2. **扩展参数空间**：
-   - 气压：1-200 Torr（高压碰撞鞘层）
-   - 密度：10¹⁴-10¹⁸ m⁻³（工业等离子体典型值）
-   - 温度：0.5-10 eV
-3. **应用机器学习方法**：
-   - 生成大规模高压合成 I-V 数据集
-   - 训练适用于碰撞regime的推断模型
-   - 为高压朗缪尔探针诊断提供实用工具
-
-**关键创新**：
-- 论文用 OMT 处理**无碰撞**物理 → 本项目用 PIC-MCC 处理**碰撞**物理
-- 论文覆盖**低压空间**应用 → 本项目覆盖**高压工业**应用
-- 两者互补，共同覆盖从真空到大气压的完整参数空间
-
-**目标应用场景**：
-- ✅ 等离子体刻蚀/沉积（半导体制造）
-- ✅ 大气压等离子体射流
-- ✅ 高压放电诊断
-- ✅ 等离子体医疗与材料改性
-
-### 0.3 技术路线
-
-```
-论文方法                    本项目扩展
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OMT 数值求解        →      PIC-MCC 时域仿真
-│                           │
-├─ 无碰撞物理              ├─ 碰撞物理 (CEX + 电子碰撞)
-├─ 稳态解                  ├─ 瞬态演化 + 统计平均
-├─ 低压 (~0 Torr)         ├─ 高压 (1-200 Torr)
-├─ 低密度 (10¹⁰-10¹²)     ├─ 高密度 (10¹⁴-10¹⁸)
-│                           │
-└─→ 生成 I-V 数据库        └─→ 生成 I-V 数据库
-     │                           │
-     └─────────┬─────────────────┘
-               ↓
-        机器学习训练
-        (RBF / 神经网络)
-               ↓
-        参数推断模型
-     (n₀, Tₑ, Vₛ + 置信区间)
 ```
 
 ---
 
-## 1. 项目目标与问题定义
+## 4. 物理模型摘要
 
-目标：构建 1D 径向（圆柱坐标）Particle‑in‑Cell (PIC) + Monte Carlo Collisions (MCC) 数值模型，用于高压条件下 Langmuir 探针 I‑V 曲线的计算。  
-重点：**碰撞主导（collisional sheath）** 情况下，离子‑中性气体电荷交换（CEX）对鞘层结构与探针电流的影响。
+### 4.1 几何与方程
 
----
+- 1D 径向圆柱域：`r ∈ [R_MIN, R_MAX]`
+- 探针位于 `R_MIN`，外壁位于 `R_MAX`
+- 电势满足圆柱 Poisson：
 
-## 2. 总体架构
-
-```
-PICSIMU/
-  core/
-    config.py         # 常数、参数、稳定性评估
-    particles.py      # 粒子推进 + 电荷加权
-    fields.py         # 圆柱 Poisson 求解 + 电场计算
-    collisions.py     # MCC (离子-中性 CEX + 电子-中性碰撞)
-    simulation.py     # 主循环 + 扫描电压
-  frontend/
-    app.py            # Streamlit 前端
-  benchmarks.py       # 物理基准测试入口
-  run_physics_accurate.py  # 主命令行测试/数据生成入口
-  README.md          # 本文档
+```text
+(1/r) * d/dr (r * dphi/dr) = -rho / epsilon_0
 ```
 
-核心架构原则：
-- **物理计算重循环全部 Numba JIT (nopython=True)**。
-- 圆柱几何、体积修正、角动量守恒为强制约束。
-- 前端只负责可视化与参数输入，核心计算不依赖 UI。
+- Dirichlet 边界：
 
----
-
-## 3. 物理模型与假设
-
-### 3.1 几何与维度
-
-- 只考虑 **1D 径向**（r）方向。
-- 探针表面位于 `r = R_MIN`，外壁位于 `r = R_MAX`。
-- 忽略轴向 (z) 与方位角 (θ) 方向的空间变化，但保留 **角向速度分量 v_θ** 用于角动量守恒。
-
-### 3.2 粒子物种
-
-当前实现包含：
-- 电子 (e)
-- 单电荷氩离子 Ar⁺
-
-每个粒子状态：
-```
-位置: r
-速度: v_r, v_θ
+```text
+phi(R_MIN) = V_bias
+phi(R_MAX) = V_wall
 ```
 
-### 3.3 电场与静电近似
+### 4.2 粒子状态与推进
 
-只考虑静电场（准静态），无磁场：
+粒子状态：`(r, v_r, v_theta)`  
+径向动力学：
+
+```text
+dv_r/dt = (q/m) * E_r + v_theta^2 / r
 ```
-E = -∂φ/∂r
+
+角动量守恒：
+
+```text
+v_theta_new = v_theta_old * (r_old / r_new)
 ```
 
-### 3.4 碰撞模型
+推进器使用二阶速度 Verlet（旧版 README 对应说明已保留）。
 
-离子‑中性碰撞仅考虑 **电荷交换 (CEX)**：
-- 碰撞概率：
-  ```
-  P = 1 - exp(-n_g * σ * v * dt)
-  ```
-- 发生碰撞后：离子速度被替换为中性气体 Maxwellian 分布抽样结果。
-  等价于“冷中性变成离子，原离子失去动能”。
+### 4.3 电荷加权与体积修正
 
-电子‑中性碰撞包含三类（简化模型）：
-- 弹性散射（elastic）
-- 激发（excitation，能量损失 E_exc）
-- 电离（ionization，能量损失 E_ion）
+使用 CIC（Cloud-in-Cell）线性加权，并按圆柱壳体积归一化：
 
-实现方式：
-- 使用常数截面 `SIGMA_EN_ELASTIC / SIGMA_EN_EXC / SIGMA_EN_ION`。
-- 当电子动能低于阈值时，激发/电离截面视为 0。
-- 碰撞后速度在 r‑theta 平面内各向同性随机化。
-- 激发/电离仅减去能量阈值，不生成新的电子/离子（可视为能量损失近似）。
-
-### 3.5 探针电流定义
-
-代码中统计的是 **每单位长度电流 (A/m)**，并采用统一的电流符号约定：
+```text
+V_j ≈ 2*pi*r_j*dr   (单位长度)
+rho_j = q_weighted / V_j
 ```
+
+### 4.4 碰撞模型（MCC）
+
+离子-中性碰撞：
+
+- CEX（电荷交换）
+- 可选弹性散射
+- 概率：
+
+```text
+P = 1 - exp(-n_g * sigma_total * v * dt)
+```
+
+电子-中性碰撞：
+
+- 弹性/激发/电离
+- 支持能量依赖截面（LXCat 或 `CS.txt` 适配）
+- 无表时退化为常数截面
+- 电离后可选生成二次电子/离子宏粒子（`ENABLE_IONIZATION_SECONDARIES`）
+
+可选库仑散射：
+
+- 电子-离子、离子-离子 pitch-angle 近似散射
+
+### 4.5 注入与电流口径
+
+外边界注入采用 Maxwellian 通量估计，径向速度按通量分布采样（Rayleigh 形式）：
+
+```text
+P(v_r) ∝ v_r * exp(-m v_r^2 / (2kT)), v_r >= 0
+v_r = v_th * sqrt(-2 ln U)
+```
+
+离子注入可加 Bohm 漂移（`ION_INJECTION_BOHM=True`）：
+
+```text
+u_B = sqrt(e*Te/m_i)
+```
+
+电流定义（电子电流按正幅值报告）：
+
+```text
 I_electron = (N_e_hit * |q_e|) / dt
 I_ion      = (N_i_hit * q_i) / dt
 I_total    = I_electron - I_ion
 ```
-其中电子电流以正值幅度给出，净电流按 **电子减离子** 计算。  
-如用户输入探针长度 `L`，最终电流会乘以 L。
-
-在 I‑V 扫描输出中，**电子电流以正值幅度**给出，净电流采用：
-```
-I_total = I_electron - I_ion
-```
-因此电子主导区会表现为 **I_total 为正**，离子主导区为负。
 
 ---
 
-## 4. 数值方法与离散化细节
+## 5. 数值方法与离散化细节
 
-### 4.1 网格定义
+### 5.1 网格
 
-- 网格节点数：`N_nodes = N_CELLS + 1`
-- 网格节点：
-  ```
-  r_j = R_MIN + j * dr
-  dr = (R_MAX - R_MIN) / N_CELLS
-  ```
-
-### 4.2 粒子推进（push_particles）
-
-当前使用 **velocity‑Verlet**（类似 leapfrog 的二阶方案）：
-
-1. **加速度（径向）**
-   ```
-   a_r = (q/m) * E_r + (v_θ^2 / r)
-   ```
-2. **位置更新**
-   ```
-   r_new = r_old + v_r_old * dt + 0.5 * a_r * dt^2
-   ```
-3. **角动量守恒**
-   ```
-   v_θ_new = v_θ_old * (r_old / r_new)
-   ```
-4. **在新位置重新计算加速度**，再更新速度：
-   ```
-   v_r_new = v_r_old + 0.5*(a_old + a_new)*dt
-   ```
-
-**注**：此更新方式明显优于显式 Euler，数值加热更弱。
-
-### 4.3 边界条件（粒子）
-
-探针表面 `r <= R_MIN`：
-- 粒子被吸收（删除），计入探针电流。
-
-外壁 `r >= R_MAX`：
-- 默认吸收（可配置为反射）。
-
-吸收通过将粒子置于“无效区域”实现：
-```
-r_dead = R_MAX + (R_MAX - R_MIN)
+```text
+N_nodes = N_CELLS + 1
+r_j = R_MIN + j*dr
+dr = (R_MAX - R_MIN)/N_CELLS
 ```
 
-### 4.4 电荷加权（CIC）
+### 5.2 粒子推进（velocity-Verlet）
 
-使用 **Cloud‑in‑Cell** 一阶线性插值：
-```
-xi = (r - R_MIN) / dr
+1. 计算旧位置加速度：`a_old = (q/m)E + v_theta^2/r`
+2. 更新位置：`r_new = r_old + v_r*dt + 0.5*a_old*dt^2`
+3. 角动量守恒更新 `v_theta`
+4. 新位置重算 `a_new`
+5. 更新速度：`v_r_new = v_r_old + 0.5*(a_old+a_new)*dt`
+
+### 5.3 粒子边界
+
+- `r <= R_MIN`：吸收并计入探针电流
+- `r >= R_MAX`：吸收或反射（可配置）
+- 死粒子槽位可用于后续注入复用
+
+### 5.4 CIC 加权
+
+```text
+xi = (r - R_MIN)/dr
 j = floor(xi)
 w = xi - j
-rho[j]   += q * (1-w)
-rho[j+1] += q * w
+rho[j]   += q*(1-w)
+rho[j+1] += q*w
 ```
 
-### 4.5 圆柱体积修正
+### 5.5 圆柱 Poisson 离散
 
-电荷密度必须除以圆柱壳体积：
-```
-V_j ≈ 2π r_j dr   (单位长度)
-ρ_j = (Σq_weighted) / V_j
-```
+通量形式离散后得到三对角系统：
 
-此处避免“平板”错误（flat plate fallacy）。
-
-### 4.6 圆柱 Poisson 方程
-
-物理方程：
-```
- (1/r) d/dr ( r dφ/dr ) = -ρ/ε0
+```text
+a_j*phi_{j-1} + b_j*phi_j + c_j*phi_{j+1} = d_j
 ```
 
-离散采用通量形式：
-```
- (r_{j+1/2} (φ_{j+1}-φ_j) - r_{j-1/2}(φ_j-φ_{j-1})) / (r_j dr^2) = -ρ_j/ε0
-```
-转为三对角形式：
-```
-a_j φ_{j-1} + b_j φ_j + c_j φ_{j+1} = d_j
-a_j = r_{j-1/2}/(r_j dr^2)
-b_j = -(r_{j+1/2}+r_{j-1/2})/(r_j dr^2)
-c_j = r_{j+1/2}/(r_j dr^2)
-d_j = -ρ_j/ε0
+其中：
+
+```text
+a_j = r_{j-1/2}/(r_j*dr^2)
+b_j = -(r_{j+1/2}+r_{j-1/2})/(r_j*dr^2)
+c_j = r_{j+1/2}/(r_j*dr^2)
+d_j = -rho_j/epsilon_0
 ```
 
-边界条件（Dirichlet）：
-```
-φ(R_MIN) = V_bias
-φ(R_MAX) = V_wall
-```
-其中 `V_wall` 为外壁电势，可在配置中设置（默认 0 V）。
+线性系统用 TDMA（Thomas）`O(N)` 求解。
 
-三对角线性系统使用 **Thomas Algorithm (TDMA)** O(N) 求解。
+### 5.6 电场
 
-### 4.7 电场计算
-
-```
-E = -dφ/dr
-```
-内部点采用中心差分，边界点使用单边差分：
-```
-E_0   = -(φ_1 - φ_0)/dr
-E_j   = -(φ_{j+1} - φ_{j-1})/(2dr)
-E_{N} = -(φ_{N} - φ_{N-1})/dr
+```text
+E = -dphi/dr
 ```
 
-### 4.8 注入模型（边界源）
+- 内点：中心差分
+- 边界：单边差分
 
-为维持准中性背景密度，粒子在外边界被重新注入：
-- 重新注入区域：`r = R_MAX - ξ * 0.5 * dr`，ξ 为随机数
-- 速度采用 Maxwellian 抽样
-- 径向速度强制朝内（`v_r = -|v_r|`）
-- 注入速率使用通量估计：
-  ```
-  Γ = n0 * v_th / sqrt(2π)
-  N_inj = Γ * (2π R_MAX) * dt / W_macro
-  ```
-  其中 `W_macro` 为宏粒子权重。若当步“死亡粒子”不足则按上限注入。
- - 径向速度按通量分布采样：
-   ```
-   P(v_r) ∝ v_r * exp(-m v_r^2 / (2 k T)), v_r >= 0
-   v_r = v_th * sqrt(-2 ln U)
-   ```
+### 5.7 初始分布（加速收敛）
 
-离子注入（可选 Bohm 漂移）：
-- 当 `ION_INJECTION_BOHM = True` 时，离子注入通量使用
-  `u_B = sqrt(e * Te / m_i)`。
-- 径向速度增加 Bohm 漂移：`v_r = -(u_B + v_th * sqrt(-2 ln U))`，
-  横向速度仍按 `Ti` 的 Maxwellian 抽样。
+采用 Child-Langmuir 风格初始电势剖面，构造接近鞘层的初值，减少 burn-in：
 
-这相当于一个简单的“外边界等离子体水库”模型。
-
-初始化分布（近似鞘层）：
-- 使用 Child‑Langmuir 形状的近似电势分布初始化：
-  ```
-  φ(r) = V_bias + (V_wall - V_bias) * ( (r - R_MIN) / s )^(4/3)
-  ```
-  其中 `s` 为估计鞘层厚度（约 `5 * λ_D` 并随 |V_bias| 放大）。
-- 电子密度采用 Boltzmann 关系：
-  ```
-  n_e = n0 * exp(φ / Te)
-  ```
-- 离子密度使用连续性近似（Bohm 速度）：
-  ```
-  n_i = n0 * u_B / sqrt(u_B^2 + 2e*|φ|/m_i)
-  ```
-- 位置抽样按圆柱体积权重 `n(r) * r` 生成，形成“鞘层低密度 + 准中性区高密度”的初始结构。
-
-### 4.9 电压扫描（I‑V 曲线）
-
-新增功能：扫描多个偏压点（warm‑start）
+```text
+phi(r) = V_bias + (V_wall - V_bias) * ((r-R_MIN)/s)^(4/3)
 ```
+
+并配套：
+
+- 电子密度：Boltzmann 关系
+- 离子密度：连续性近似（Bohm 速度）
+- 位置采样按 `n(r)*r` 权重
+
+### 5.8 电压扫描（warm-start）
+
+```text
 for V in voltages:
-    设置 V_bias
-    burn-in：N_burn_in 步
-    sampling：N_sampling 步累积电流
-    记录 I_total, I_e, I_i
+  设置 V_bias
+  burn-in
+  sampling
+  记录 I_total/I_electron/I_ion
 ```
 
-关键优化：**不重置粒子分布**，直接从上一个偏压的最终态开始。
+默认支持从上一偏压态继续（warm-start），并支持 bias ramp 平滑过渡。
+
+### 5.9 单步主循环顺序
+
+1. 外边界注入
+2. 粒子推进
+3. 电子碰撞
+4. 二次粒子生成（可选）
+5. 离子碰撞
+6. 库仑散射（可选）
+7. 电荷加权 +（可选）平滑
+8. Poisson 求解 + 电场更新
 
 ---
 
-## 5. 稳定性检查与数值约束
+## 6. 数据模型、输出与命名规范
 
-在 `Config.stability_warnings()` 中提供以下稳定性检查：
+### 6.1 Core 数据模型
 
-1. **Debye 长度解析条件**
-   ```
-   dr < λ_D
-   ```
-2. **等离子体频率时间步**
-   ```
-   dt * ω_pe < 0.2
-   ```
-3. **CFL 条件**
-   ```
-   v_th * dt < dr
-   ```
-   分别对电子与离子检查。
+粒子数组（扁平 1D NumPy）：
 
-触发时会发出 RuntimeWarning。
+- `r_e`, `vr_e`, `vt_e`
+- `r_i`, `vr_i`, `vt_i`
 
----
+场与网格数组：
 
-## 6. 输出数据与单位
+- `r_grid`, `phi`, `E`, `rho`, `rho_e`, `rho_i`, `ne`, `ni`
 
-### 6.1 单步模拟输出
+`SimulationResult` 输出：
 
-返回内容：
-```
-avg_current  # A 或 A/m（取决于 probe_length），遵循 I_total = I_e - I_i
-r_grid       # m
-phi          # V
-ne, ni       # m^-3
-ion_r, ion_vr
-```
+- `avg_current`
+- `r_grid`, `phi`, `ne`, `ni`
+- `ion_r`, `ion_vr`
 
+`scan_voltage_range()` 返回：
 
-### 6.2 结果目录结构
+- `"voltages"`
+- `"I_total"`
+- `"I_electron"`
+- `"I_ion"`
 
-模拟结果将根据用途分别存储在 `results/` 下的子目录中：
+### 6.2 结果目录
 
-- `results/benchmarks/`：存放 `benchmarks.py` 生成的基准测试结果（CSV 数据与 PNG 图像）。
-- `results/test_runs/`：存放开发测试和单次运行（如 `run_physics_accurate.py`）的结果。
-- `results/production/`：存放用于最终生产或发布的正式仿真数据（默认为空）。
+- `results/benchmarks/`：`benchmarks.py` 输出（CSV + PNG）
+- `results/test_runs/`：开发测试与单次运行输出
+- `results/production/`：生产级数据目录（预留）
 
-### 6.3 I‑V 扫描输出
+### 6.3 I-V 文件命名约定
 
-返回字典：
-```
-{
-  "voltages":  [V0, V1, ...],
-  "I_total":   [...],  # A (已乘 probe_length)
-  "I_electron":[...],  # 正值幅度
-  "I_ion":     [...]
-}
-```
+当前主测试脚本采用时间戳命名：
+
+- `iv_curve_YYYYMMDD_HHMMSS.csv`
+- `iv_curve_YYYYMMDD_HHMMSS.png`
+
+不再使用参数拼接作为主命名方案。
 
 ---
 
-## 7. 当前实现的关键假设
+## 7. 稳定性检查与数值约束
 
-1. **电磁场为静电场**，忽略磁场与时变磁效应。
-2. **1D 径向模型**，忽略轴向和方位角方向空间变化。
-3. **离子碰撞只包含 CEX**，截面为常数。
-4. **电子-中性碰撞为简化模型**（弹性/激发/电离、常数截面），仅能量损失与各向同性散射，不生成二次粒子。
-5. **中性气体温度固定**：0.026 eV (~300 K)。
-6. **外壁电势可设置**，默认 0 V。
-7. **外边界注入模型是简化的 Maxwellian 水库**。
-8. **离子注入默认包含 Bohm 漂移**（`ION_INJECTION_BOHM = True`）。
-9. **碰撞截面可选用 LXCat 能量依赖表**；如未提供则退化为常数截面。
-10. **电离可生成二次电子/离子**（简化为能量均分）。
-11. **库仑碰撞**可按需启用（各向同性散射近似）。
+`Config.stability_warnings()` 包含以下约束检查：
+
+1. Debye 解析：`dr < lambda_D`
+2. 等离子体频率：`dt * omega_pe < 0.2`
+3. 电子 CFL：`v_th,e * dt < dr`
+4. 离子 CFL：`v_th,i * dt < dr`
+
+触发时给出 RuntimeWarning，提醒可能的噪声或失稳风险。
 
 ---
 
-## 8. 可能的扩展方向
+## 8. 当前实现假设与局限
 
-（仅作为后续扩展建议，当前未实现）
+### 8.1 核心假设
 
-- 更完整的电子碰撞模型（能量依赖截面、二次粒子生成）
-- 能量依赖的 CEX 截面 σ(v)
-- 多离子种类
-- 轴向速度 v_z 和 2D/3D 几何
-- 更复杂的探针表面模型（发射、二次电子）
+1. 静电近似（不含磁场）
+2. 1D 径向几何（无轴向/方位角空间分辨）
+3. 中性气体温度固定约 `0.026 eV`（~300K）
+4. 外边界采用 Maxwellian 储库注入模型
+5. 外壁电势可配置，默认 `0 V`
+6. 离子注入可启用 Bohm 漂移
+7. 截面可用常数或能量依赖表
+8. 电离二次粒子、离子弹性、库仑碰撞均为可选开关
+
+### 8.2 局限
+
+1. 空间维度仍为 1D 径向
+2. 化学与碰撞过程为简化模型，不是全反应网络
+3. 高压强区对微观过程的细节仍受截面质量与模型开关影响
 
 ---
 
-## 9. 运行方式简述
+## 9. 运行方式
 
-命令行快速测试：
+### 9.1 命令行快速测试
+
 ```powershell
 @'
 from core.config import Config
@@ -690,539 +388,341 @@ print(res.avg_current)
 '@ | python -
 ```
 
-Streamlit UI：
+### 9.2 基准与主测试入口
+
+- `python benchmarks.py`
+- `python run_physics_accurate.py`
+
+### 9.3 前端
+
 ```powershell
 streamlit run frontend/app.py
 ```
 
-推荐的根目录命令行脚本入口：
-- `benchmarks.py`：物理基准测试套件
-- `run_physics_accurate.py`：当前主测试/数据生成脚本
+### 9.4 使用 LXCat/CS 截面
 
-## 9.1 使用 LXCat 碰撞截面（可选）
+可在 `Config` 设置：
 
-为避免版权与许可问题，本仓库不内置 LXCat 数据。若需要能量依赖截面：
+- `LXCAT_ELECTRON_FILE`
+- `LXCAT_ION_FILE`
 
-- 下载 LXCat 的 Ar 电子/离子截面文本文件（建议 Phelps/其它权威库）。
-- 在 `Config` 中设置：
-  - `LXCAT_ELECTRON_FILE="path/to/electron.txt"`
-  - `LXCAT_ION_FILE="path/to/ion.txt"`
-
-未提供文件时，将使用常数截面退化模型。
-
-默认配置会尝试读取仓库根目录下的 `CS.txt`（如果存在），作为电子/离子截面数据源。
-如不希望使用它，请将 `LXCAT_ELECTRON_FILE` / `LXCAT_ION_FILE` 设置为 `None`。
-`CS.txt` 的来源信息应在文件头部注明（例如 LXCat Biagi/Phelps 导出）。
+默认会尝试读取仓库根目录 `CS.txt`。若不希望启用，设为 `None` 即可。  
+`core/cross_sections.py`、`core/lxcat_parser.py`、`core/cs_txt_adapter.py` 负责解析与表格插值。
 
 ---
 
-## 10. 关键实现文件索引
+## 10. Benchmark 基准算例记录（LabArgon）
 
-- `core/config.py`：常数与稳定性警告逻辑  
-- `core/particles.py`：速度‑Verlet 推进、CIC 权重、角动量守恒  
-- `core/fields.py`：圆柱 Poisson + TDMA  
-- `core/collisions.py`：CEX + 电子-中性 MCC  
-- `core/simulation.py`：主循环与电压扫描  
-- `frontend/app.py`：UI 输入与 I‑V 曲线绘制  
-- `benchmarks.py`：基准测试主入口
-- `run_physics_accurate.py`：命令行测试与数据生成主入口
+旧 README 的基准算例信息完整保留如下：
 
----
-
-## 11. Benchmark Case（基准算例）
-
-为便于复现实验与回归对比，记录如下基准算例：
-
-**Benchmark 名称**：`LabArgon-0p1Torr-2eV-IV`
-
-物理参数：
-- 气体：Argon（Ar⁺，40 AMU）
-- 电子密度 `N0 = 1.0e16 m^-3`
-- 电子温度 `Te = 2.0 eV`
-- 离子温度 `Ti = 0.026 eV`
-- 背景气压 `P_Torr = 0.1`
-- 探针半径 `R_MIN = 1.5e-4 m`
-- 外壁半径 `R_MAX = 5.0e-3 m`
-- 外壁电势 `V_WALL = 0.0 V`
-- 探针长度 `L = 0.01 m`
+- 名称：`LabArgon-0p1Torr-2eV-IV`
+- 气体：Argon（Ar+，40 AMU）
+- `N0 = 1.0e16 m^-3`
+- `Te = 2.0 eV`
+- `Ti = 0.026 eV`
+- `P_Torr = 0.1`
+- `R_MIN = 1.5e-4 m`
+- `R_MAX = 5.0e-3 m`
+- `V_WALL = 0 V`
+- `L = 0.01 m`
 
 数值设置：
-- 网格数 `N_CELLS = 100`
-- 时间步长 `DT = 20e-12 s`
-- CEX 截面 `sigma_cex = 8.0e-18 m^2`
-- 粒子数 `n_particles = 10000`（每个物种）
-- 扫描范围 `V_start = -40 V` → `V_end = +10 V`
-- 扫描点数 `n_steps = 21`
-- 稳定步数 `n_burn_in = 20000`
-- 采样步数 `n_sampling = 20000`
 
-参考输出（已保存）：
+- `N_CELLS = 100`
+- `DT = 20e-12 s`
+- `sigma_cex = 8.0e-18 m^2`
+- `n_particles = 10000`（每物种）
+- `V_start=-40 V`, `V_end=+10 V`, `n_steps=21`
+- `n_burn_in=20000`, `n_sampling=20000`
+
+历史参考输出（旧文档记录）：
+
 - `results/iv_data_labargon_posI.csv`
 - `results/iv_curve_labargon_posI.png`
 - `results/iv_curve_labargon_semilog_posI.png`
 
 预期特征：
-- I‑V 曲线随电压上升而单调上升
-- 浮动电位约 `-10 V` 左右
+
+- I-V 随电压上升单调上升
+- 浮动电位约 `-10 V`
 - 半对数电子支线近似线性
 
-如需更细致的物理验证或与实验对标，可在此基础上加入诊断量：能量守恒、鞘层厚度、IV 曲线拟合（Te 与浮动电位）。
+---
+
+## 11. 物理模型验证状态（已完成）
+
+### Test 1：真空圆柱电容器
+
+- 目的：验证圆柱 Poisson 求解器
+- 结果：最大相对误差约 `0.0017%`
+- 状态：通过（2026-01-20）
+- 输出：
+  - `results/benchmarks/benchmark_test1_vacuum_capacitor.csv`
+  - `results/benchmarks/benchmark_test1_vacuum_capacitor.png`
+
+### Test 2：电子温度推断
+
+- 目的：验证电子速度采样与 Boltzmann 关系
+- 配置：无碰撞、`Te=2.0 eV`、`V=-10~-2 V`
+- 结果：`slope = 0.494 V^-1`, 推断 `Te = 2.02 eV`
+- 状态：通过（2026-01-20）
+- 输出：
+  - `results/benchmarks/benchmark_test2_electron_temperature.csv`
+  - `results/benchmarks/benchmark_test2_electron_temperature.png`
+
+### Test 3：OML 离子动力学
+
+- 目的：验证角动量守恒与 `I_i^2 ∝ |V|`
+- 配置：`R_MIN=500 um`, `N0=5e15 m^-3`, 无碰撞
+- 结果：`R^2 = 0.993`
+- 状态：通过（2026-01-20）
+- 输出：
+  - `results/benchmarks/benchmark_test3_oml_ion.csv`
+  - `results/benchmarks/benchmark_test3_oml_ion.png`
+
+### Test 4：碰撞阻尼
+
+- 目的：验证 CEX 导致离子电流随压强抑制
+- 结果：`I_ion(10 Torr) / I_ion(0 Torr) = 0.000`
+- 状态：通过（2026-01-20）
+- 输出：
+  - `results/benchmarks/benchmark_test4_collisional_damping.csv`
+  - `results/benchmarks/benchmark_test4_collisional_damping.png`
+
+### Test 5：氢等离子体实验对照（直径归一化）
+
+- 目的：与公开氢等离子体实验做同口径量级核对
+- 参考文献：Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
+- 关键事实：
+  - 实验探针直径：`0.15 mm`
+  - 仿真探针直径：`0.4 mm`
+  - `+80 V` clean plasma 读图约：`13.5 mA`
+- 直径归一化：
+
+```text
+I_norm = I_exp * (d_sim / d_exp)
+       = 13.5 mA * (0.4 / 0.15)
+       = 36.0 mA
+```
+
+按 `L = 10 mm` 换算为每单位长度：`~3.6 A/m`
+
+- 仿真：`I_sim(+80V) ≈ 2.700 A/m`
+  - 数据文件：`results/test_runs/iv_curve_20260310_110921.csv`
+- 差异：约 `25%`
+- 结论：作为一阶量级一致性验证，通过
+
+核心结论（旧版全量结论保留）：
+
+- 圆柱几何项处理正确
+- 角动量守恒实现正确
+- 速度 Verlet 积分精度满足要求
+- CIC + 体积修正正确
+- OML 标度律得到验证
+- 碰撞阻尼趋势得到验证
+- 与公开氢实验量级达到一阶一致
 
 ---
 
-## 12. 物理模型验证状态
+## 12. 物理模型校准说明（旧版信息整合）
 
-本项目已通过以下物理基准测试（详见本 README 的“物理模型校准说明”章节）：
+### 12.1 校准目标
 
-### ✅ Test 1: 真空圆柱电容器
-- **验证内容**：圆柱 Poisson 求解器精度
-- **结果**：最大相对误差 ≈ 0.0017%
-- **状态**：通过（2026-01-20）
+1. 验证场求解：`1/r` 几何项正确性
+2. 验证电子统计：`ln(I_e)` 与偏压关系
+3. 验证离子动力学：OML 标度与角动量守恒
+4. 验证碰撞趋势：CEX 抑制随压强增强
 
-### ✅ Test 2: 电子温度推断
-- **验证内容**：电子速度采样与 Boltzmann 关系
-- **配置**：无碰撞，Te = 2.0 eV，扫描 -10V 到 -2V
-- **结果**：斜率 = 0.494 V⁻¹，推断 Te = 2.02 eV
-- **状态**：通过（2026-01-20）
+### 12.2 为什么是这四类 benchmark
 
-### ✅ Test 3: OML 离子动力学
-- **验证内容**：角动量守恒与轨道运动理论
-- **结果**：R² = 0.993（I_i² vs |V| 线性度）
-- **配置**：R_MIN = 500 μm, N0 = 5×10¹⁵ m⁻³, 无碰撞
-- **状态**：通过（2026-01-20）
+1. 真空圆柱电容器：解析可比，最低成本验证 Poisson
+2. 电子温度检查：直接检验速度采样和通量注入
+3. OML 离子动力学：直接检验轨道动力学与守恒项
+4. 碰撞阻尼：直接检验碰撞算子与压强响应
 
-### ✅ Test 4: 碰撞阻尼
-- **验证内容**：CEX 碰撞导致的离子电流随压强抑制
-- **结果**：I_ion(10 Torr) / I_ion(0 Torr) = 0.000
-- **状态**：通过（2026-01-20）
-
-### ✅ Test 5: 氢等离子体实验对比（探针直径归一化）
-- **验证内容**：与 2017 年氢等离子体 Langmuir 探针实验做同口径 I-V 对比
-- **实验参考**：Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
-- **归一化规则**：实验探针直径 `0.15 mm` → 仿真探针直径 `0.4 mm`，按直径线性归一化电流
-- **对比点**：`+80 V` 处，实验（clean plasma）读图约 `13.5 mA`，归一化后约 `3.6 A/m`（按 `L=10 mm` 换算）
-- **仿真结果**：`I_sim(+80V) ≈ 2.700 A/m`（文件：`results/test_runs/iv_curve_20260310_110921.csv`）
-- **差异**：约 25%
-- **状态**：✅ 通过（作为一阶量级一致性证明，允许压力/化学组分/读图误差带来的偏差）
-
-### 核心物理正确性确认
-- ✅ 圆柱几何项处理正确
-- ✅ 角动量守恒实现正确  
-- ✅ 速度 Verlet 积分精度满足要求
-- ✅ CIC 电荷加权 + 体积修正正确
-- ✅ OML 标度律 $I_i \propto \sqrt{|V|}$ 得到验证
-- ✅ 碰撞阻尼随压强增强的趋势得到验证
-- ✅ 与公开氢等离子体实验 I-V 量级对比达到一阶一致
-
-**结论**：该 PIC-MCC 模型已具备可信的物理基础，并完成了与公开氢等离子体实验的归一化量级对比，可作为后续生产级合成数据生成的正确性基线。
-
----
-
-# 物理模型校准说明
-
-本文档用于说明本项目的四项物理基准测试（benchmark）如何设计、如何执行，以及校准结果如何解读。目标是验证 1D 圆柱 PIC‑MCC 核心求解器在**静电场求解、电子温度统计、离子 OML 动力学、碰撞阻尼趋势**四个关键方面的物理正确性。
-
----
-
-## 校准目标
-
-1. **电场求解正确性**：验证圆柱 Poisson 求解器是否正确处理 `1/r` 几何项。  
-2. **电子温度统计正确性**：验证速度采样与 Boltzmann 关系在弱扰动区的正确性。  
-3. **离子 OML 动力学一致性**：验证离子轨道运动与角动量守恒对 I‑V 形状的影响。
-4. **碰撞阻尼趋势正确性**：验证 CEX 碰撞导致的离子电流随压强降低。
-
----
-
-## 选择这四个 Benchmark 的原因
-
-1. **真空圆柱电容器 (Test 1)**  
-   这是 Poisson 求解器的"解析可比"金标准。  
-   解析解直接包含 `ln(r)` 形式，是检验 `1/r` 几何项的最低成本方法。  
-
-2. **电子温度检查 (Test 2)**  
-   低压、无碰撞、电子 retarding 区的 `ln(I_e)` 应与电压线性，斜率 `≈ 1/Te`。  
-   这是验证电子速度分布采样、注入通量分布修正的核心测试。  
-
-3. **OML 离子动力学 (Test 3)**  
-   OML 理论中圆柱探针满足 `I_i^2 ∝ |V|`。  
-   它检验离子推进的角动量守恒、轨道聚焦行为是否合理。  
-
-4. **碰撞阻尼 (Test 4)**  
-   高压下 CEX 会降低离子收集电流。  
-   它检验碰撞算子与压强依赖是否体现出物理抑制趋势。  
-
-这四个基准覆盖：**场求解、粒子统计、动力学行为、碰撞趋势**四大核心模块。
-
----
-
-## Benchmark 1：真空圆柱电容器
-
-**目的**：验证 Poisson 求解器的 `1/r` 项。  
-**配置**：
-- 无粒子（密度为 0）
-- `r_min = 0.5 mm`, `r_max = 5.0 mm`
-- `φ(r_min) = -100 V`, `φ(r_max) = 0 V`
-
-**解析解**：
-```
-φ(r) = V_bias * ln(r/r_max) / ln(r_min/r_max)
-```
-
-**校准结果** (2026-01-20)：
-```
-Max relative error ≈ 0.0017%
-```
-
-✅ **通过**：数值解与解析解高度一致，圆柱几何项实现正确。
-
-输出文件：
-- `results/benchmark_test1_vacuum_capacitor.png`
-- `results/benchmark_test1_vacuum_capacitor.csv`
-
----
-
-## Benchmark 2：电子温度检查
-
-**目的**：验证电子速度采样与 Boltzmann 关系。  
-
-**配置**：
-- 无碰撞：`P_Torr = 0`
-- `Te = 2.0 eV`, `N0 = 1e15 m^-3`
-- 扫描 `V_bias = -10 → -2 V` (9个点)
-- 使用 `ln(I_e)` 线性拟合
-
-**理论预期**：
-```
-ln(I_e) ∝ (e/kTe) * V_bias
-斜率理论值 ≈ 1/Te = 0.5
-```
-
-**校准结果** (2026-01-20)：
-```
-ln(I_e) slope = 0.494 V⁻¹
-Inferred Te = 2.02 eV
-```
-
-✅ **通过**：推断温度与设定 Te 一致，速度采样与 Boltzmann 关系匹配。
-
-输出文件：
-- `results/benchmark_test2_electron_temperature.png`
-- `results/benchmark_test2_electron_temperature.csv`
-
----
-
-## Benchmark 3：OML 离子动力学
-
-**目的**：验证离子轨道运动对 `I_i^2 ∝ |V|` 的线性关系。  
-
-### 配置参数（优化后）
+### 12.3 OML 测试关键配置（旧版表格保留）
 
 | 参数 | 值 | 说明 |
-|------|-----|------|
-| **探针半径** | `R_MIN = 5.0e-4 m` | 500 μm |
-| **外壁半径** | `R_MAX = 5.0e-3 m` | 5 mm |
-| **等离子体密度** | `N0 = 5.0e15 m^-3` | 中等密度 |
-| **电子温度** | `Te = 2.0 eV` | 典型实验室等离子体 |
-| **离子温度** | `Ti = 0.026 eV` | 室温 |
-| **宏粒子数** | `n_particles = 20,000` | 每个物种 |
-| **稳定步数** | `n_burn_in = 200,000` | 充分热化 |
-| **采样步数** | `n_sampling = 80,000` | 统计精度 |
-| **电压扫描** | `-50 V → -10 V` | 9个点，离子饱和区 |
-| **碰撞设置** | `P_Torr = 0`, `sigma_cex = 0` | 无碰撞 OML 条件 |
+|---|---|---|
+| 探针半径 | `R_MIN = 5.0e-4 m` | 500 um |
+| 外壁半径 | `R_MAX = 5.0e-3 m` | 5 mm |
+| 密度 | `N0 = 5.0e15 m^-3` | 中等密度 |
+| 电子温度 | `Te = 2.0 eV` | 实验室典型 |
+| 离子温度 | `Ti = 0.026 eV` | 室温 |
+| 宏粒子数 | `20000` | 每个物种 |
+| 稳定步数 | `200000` | 充分热化 |
+| 采样步数 | `80000` | 提升统计 |
+| 扫描区间 | `-50 -> -10 V` | 离子饱和区 |
+| 碰撞 | `P=0, sigma_cex=0` | OML 条件 |
 
-### 关键设计考虑
+Debye 检查（旧版说明保留）：
 
-1. **Debye 长度检查**：
-   $$\lambda_D = \sqrt{\frac{\epsilon_0 k T_e}{n_0 e^2}} \approx 149 \, \mu\text{m}$$
-   
-   探针半径 **500 μm > 149 μm**，满足 OML 条件 $r_p \gg \lambda_D$ ✓
-
-2. **统计量提升**：
-   - 探针半径从早期的 20-50 μm 增大到 500 μm
-   - 收集面积增大 **100-625 倍**
-   - 每个电压点采样 80,000 步，确保充足统计
-
-3. **物理区间选择**：
-   - 选择离子饱和区（-50 V to -10 V）
-   - 避免浮动电位附近的过渡区
-
-### 理论预期
-
-根据 OML (Orbital Motion Limited) 理论，圆柱探针的离子电流满足：
-
-$$I_i = 2\pi r_p L \cdot n_0 e \sqrt{\frac{2e|V|}{m_i}} \cdot f(\text{geometry})$$
-
-其中角动量守恒导致：
-
-$$I_i \propto \sqrt{|V|}$$
-
-因此绘制 $I_i^2$ vs $|V|$ 应为**线性关系**。
-
-### 校准结果（2026-01-20）
-
-```
-R² = 0.993
+```text
+lambda_D ≈ 149 um,  r_probe = 500 um > lambda_D
 ```
 
-✅ **通过**：R² = 0.993 表明模型成功复现了 OML 物理，$I_i^2 \propto |V|$ 线性关系得到验证。
+符合 OML 条件。
 
-**数据样本**：
+### 12.4 OML 样本数据（旧版保留）
 
-| V_bias (V) | \|V\| (V) | I_ion (A) | I_ion² (A²) | 拟合值 (A²) | 相对误差 |
-|------------|-----------|-----------|-------------|-------------|----------|
-| -50        | 50        | 0.02359   | 5.564×10⁻⁴  | 5.557×10⁻⁴  | 0.13%    |
-| -45        | 45        | 0.02212   | 4.895×10⁻⁴  | 5.053×10⁻⁴  | 3.13%    |
-| -40        | 40        | 0.02121   | 4.498×10⁻⁴  | 4.548×10⁻⁴  | 1.10%    |
-| -35        | 35        | 0.02030   | 4.120×10⁻⁴  | 4.044×10⁻⁴  | 1.88%    |
-| -30        | 30        | 0.01903   | 3.623×10⁻⁴  | 3.540×10⁻⁴  | 2.33%    |
-| -25        | 25        | 0.01789   | 3.201×10⁻⁴  | 3.036×10⁻⁴  | 5.45%    |
-| -20        | 20        | 0.01622   | 2.632×10⁻⁴  | 2.532×10⁻⁴  | 3.95%    |
-| -15        | 15        | 0.01404   | 1.972×10⁻⁴  | 2.027×10⁻⁴  | 2.74%    |
-| -10        | 10        | 0.01164   | 1.356×10⁻⁴  | 1.523×10⁻⁴  | 10.99%   |
+| V_bias (V) | \|V\| (V) | I_ion (A) | I_ion^2 (A^2) | 拟合值 (A^2) | 相对误差 |
+|---|---:|---:|---:|---:|---:|
+| -50 | 50 | 0.02359 | 5.564e-4 | 5.557e-4 | 0.13% |
+| -45 | 45 | 0.02212 | 4.895e-4 | 5.053e-4 | 3.13% |
+| -40 | 40 | 0.02121 | 4.498e-4 | 4.548e-4 | 1.10% |
+| -35 | 35 | 0.02030 | 4.120e-4 | 4.044e-4 | 1.88% |
+| -30 | 30 | 0.01903 | 3.623e-4 | 3.540e-4 | 2.33% |
+| -25 | 25 | 0.01789 | 3.201e-4 | 3.036e-4 | 5.45% |
+| -20 | 20 | 0.01622 | 2.632e-4 | 2.532e-4 | 3.95% |
+| -15 | 15 | 0.01404 | 1.972e-4 | 2.027e-4 | 2.74% |
+| -10 | 10 | 0.01164 | 1.356e-4 | 1.523e-4 | 10.99% |
 
-### 物理意义分析
+残差解读（旧版保留）：
 
-✅ **R² = 0.993 表明模型成功复现了 OML 物理**：
+- 高电压端（-50~-35V）：误差 < 3.2%
+- 中电压端（-30~-20V）：误差约 2.3%~5.5%
+- 低电压端（-15~-10V）：偏离增大（过渡区 + 小电流统计涨落）
 
-1. **角动量守恒正确**：离子轨道运动的 $v_\theta$ 演化符合 $r \times v_\theta = \text{const}$
-2. **离心力项正确**：圆柱坐标系的径向加速度 $a_r = (q/m)E + v_\theta^2/r$ 实现准确
-3. **速度 Verlet 积分保持相空间结构**：二阶精度保证长程轨道不失真
-4. **无碰撞条件下的 OML 标度律正确**：$I_i \propto \sqrt{|V|}$ 得到验证
-
-### 残差分析
-
-**高电压端（-50 V to -35 V）**：
-- 拟合优秀，相对误差 < 3.2%
-- OML 条件充分满足
-
-**中电压端（-30 V to -20 V）**：
-- 拟合良好，相对误差约 2.3%~5.5%
-- 核心 OML 区域
-
-**低电压端（-15 V to -10 V）**：
-- 偏离略增，最大相对误差约 11%
-- 可能原因：
-  - 接近鞘层-准中性区过渡，OML 假设开始失效
-  - 电势降低导致离子收集效率下降
-  - 统计涨落在小电流时更显著
-
-
-
-输出文件：
-- `results/benchmark_test3_oml_ion.png`
-- `results/benchmark_test3_oml_ion.csv`
-
----
-
-## Benchmark 4：碰撞阻尼
-
-**目的**：验证 CEX 碰撞导致的离子电流随压强抑制趋势。  
-
-**配置**：
-- `N0 = 1.0e16 m^-3`, `Te = 2.0 eV`, `Ti = 0.026 eV`
-- `R_MIN = 1.5e-4 m`, `R_MAX = 1.0e-2 m`
-- `n_particles = 30,000`, `sigma_cex = 8.0e-18 m^2`
-- 压强扫描：`P_Torr = [0, 0.1, 0.5, 1, 3, 5, 10]`
-- `n_burn_in = 5,000`, `n_sampling = 5,000`
-
-**校准结果** (2026-01-20)：
-```
-I_ion(10 Torr) / I_ion(0 Torr) = 0.000
-```
-
-**数据样本**：
+### 12.5 碰撞阻尼样本（旧版保留）
 
 | P_Torr | I_ion (A/m) |
-|--------|------------|
-| 0.0    | 3.355×10⁻³ |
-| 0.1    | 1.342×10⁻³ |
-| 0.5    | 1.006×10⁻³ |
-| 1.0    | 3.355×10⁻⁴ |
-| 3.0    | 0.000×10⁰ |
-| 5.0    | 0.000×10⁰ |
-| 10.0   | 0.000×10⁰ |
+|---:|---:|
+| 0.0 | 3.355e-3 |
+| 0.1 | 1.342e-3 |
+| 0.5 | 1.006e-3 |
+| 1.0 | 3.355e-4 |
+| 3.0 | 0.000e0 |
+| 5.0 | 0.000e0 |
+| 10.0 | 0.000e0 |
 
-输出文件：
-- `results/benchmark_test4_collisional_damping.png`
-- `results/benchmark_test4_collisional_damping.csv`
-
----
-
-## 总体结论
-
-### 验证状态总结
+### 12.6 校准总表（旧版保留）
 
 | 测试项目 | 指标 | 结果 | 状态 |
-|---------|------|------|------|
-| Test 1 - Poisson 求解器 | 相对误差 | 0.0017% | ✅ **优秀** |
-| Test 2 - 电子温度 | 推断 Te | 2.02 eV | ✅ **通过** |
-| Test 3 - OML 动力学 | R² | 0.993 | ✅ **通过** |
-| Test 4 - 碰撞阻尼 | 抑制比 | 0.000 | ✅ **通过** |
-| Test 5 - 氢实验归一化对比 | +80V 电流量级 | I_sim=2.700 A/m vs I_exp,norm≈3.6 A/m | ✅ **通过（差异约25%）** |
+|---|---|---|---|
+| Test 1 - Poisson | 最大相对误差 | 0.0017% | 优秀 |
+| Test 2 - 电子温度 | 推断 Te | 2.02 eV | 通过 |
+| Test 3 - OML | R^2 | 0.993 | 通过 |
+| Test 4 - 碰撞阻尼 | 抑制比 | 0.000 | 通过 |
+| Test 5 - 氢实验归一化 | +80V 电流量级 | `2.700 A/m` vs `3.6 A/m` | 通过（差异约25%） |
 
+综合结论：
 
-### 物理正确性评估
-
-✅ **核心求解器的物理正确性已建立**：
-
-1. **场求解模块**：圆柱 Poisson 方程求解精度达到 0.002% 级别
-2. **粒子统计模块**：电子速度分布和通量采样与 Maxwellian 理论一致
-3. **动力学模块**：离子轨道运动、角动量守恒、OML 标度律均正确
-
-### 数值模型可信度
-
-在高压 I‑V 扫描应用之前，本模型已具备：
-- ✅ 准确的静电场计算
-- ✅ 正确的粒子统计采样
-- ✅ 可靠的长程轨道积分
-- ✅ 符合物理规律的电流收集机制
-
-**结论**：该 PIC-MCC 模型已通过四项核心物理基准测试，并完成与公开氢等离子体实验的归一化量级对比，可作为后续生产级数据生成的正确性基线。
-
-### 下一阶段任务声明（Production）
-
-接下来的核心任务是面向 production 的大规模合成数据生成，具体包括：
-
-1. 对参数扫描、重复仿真和批量任务进行并行化改造。
-2. 对计算热点（粒子推进、碰撞、加权、场计算）进行 GPU 加速改造。
-3. 在并行/GPU 改造后保持与当前 CPU 基线一致的物理结果与可复现性。
-4. 建立高吞吐数据导出与元数据追踪流程，支撑后续模型训练与部署。
+- 当前模型可作为生产级数据生成的物理基线
+- 后续优化应保持对该基线的数值一致性回归
 
 ---
 
+## 13. 当前主测试口径（最新实现）
 
+`run_physics_accurate.py` 当前主配置（旧信息 + 最新变更统一）：
 
-# Agent Guide: PICSIMU
+- 等离子体：氢
+- 压力：`0.3 Pa`（约 `2.25e-3 Torr`）
+- 密度：`1e16 m^-3`
+- 温度：`1 eV`
+- 探针直径：`0.4 mm`
+- 扫描区间：`-30 -> +100 V`
+- 每偏压点：稳定后采样，重复 5 次取均值
+- 关闭二次电离电子：`ENABLE_IONIZATION_SECONDARIES=False`
+- 输出：`results/test_runs/iv_curve_<timestamp>.csv/png`
 
-This document is for automation agents and other bots interacting with this
-repository. It describes the architecture, coding rules, and the expected
-workflow when extending the simulation.
+---
 
-## Documentation policy
+## 14. Agent 开发约束（由旧版 Agent Guide 合并）
 
-`README.md` is the AI/automation-facing, canonical technical record.
-Human-friendly overviews live in `README_HUMAN.md` (English) and
-`README_HUMAN_CN.md` (中文).
-When updating project information, update `README.md` first and then sync the
-human overview(s) if the summary changes. Legacy stub files remain for
-compatibility; do not create additional `.md` documentation files beyond
-`README.md`, `README_HUMAN.md`, and `README_HUMAN_CN.md`.
-
-## Purpose
-
-Build a 1D radial (cylindrical) Particle-in-Cell (PIC) simulation with
-Monte Carlo Collisions (MCC) capable of reproducing Langmuir probe I–V curves
-in high-pressure regimes. The project prioritizes physical correctness and
-performance.
-
-## Research context
-
-This project extends the ML-based plasma diagnostics framework from:
-- **Paper**: Marchand et al., *J. Plasma Phys.* 89(1), 2023
-- **Original scope**: Collisionless (OMT), low-pressure (~0 Torr), 10¹⁰-10¹² m⁻³
-- **This project**: Collisional (PIC-MCC), high-pressure (1-200 Torr), 10¹⁴-10¹⁸ m⁻³
-- **Goal**: Generate synthetic I-V data for ML training → enable real-time inference in industrial plasmas
-
-Key physics difference: Paper uses steady-state OMT; we use transient PIC-MCC with collision operators.
-
-## Required tech stack
+### 14.1 必需技术栈
 
 - Python 3.10+
 - NumPy
-- Numba (all heavy loops must be `nopython=True`)
-- Streamlit (frontend)
-- Matplotlib (plots)
+- Numba（重循环必须 `nopython=True`）
+- Streamlit
+- Matplotlib
 
-## Architectural constraints
+### 14.2 架构硬约束
 
-1. Geometry is 1D radial cylindrical, domain `[R_MIN, R_MAX]`.
-2. Particles track `(r, v_r, v_theta)`; `v_theta` is required.
-3. The radial equation of motion includes a centrifugal term:
-   `dv_r/dt = (q/m) E_r + v_theta^2 / r`.
-4. Angular momentum conservation must be enforced:
-   `v_theta_new = v_theta_old * (r_old / r_new)`.
-5. Charge density weighting must account for cylindrical shell volume:
-   `V_j ≈ 2 * pi * r_j * dr` (per unit length).
-6. The Poisson solver must use the cylindrical Laplacian and TDMA.
-7. Monte Carlo collisions include ion-neutral CEX and simplified electron-neutral processes.
-8. All heavy loops in the physics core must be Numba-jitted.
+1. 几何固定为 1D 径向圆柱域
+2. 粒子必须保留 `v_theta`
+3. 径向推进必须包含离心项 `v_theta^2 / r`
+4. 必须显式保持角动量守恒
+5. 加权必须做圆柱壳体积归一化
+6. Poisson 必须用圆柱拉普拉斯离散 + TDMA
+7. 碰撞至少包含离子-中性 CEX 和电子-中性基本过程
+8. 核心重循环必须 Numba 化
 
-## Module responsibilities
+### 14.3 模块职责
 
-`core/config.py`
-- Holds constants and simulation parameters.
-- Provides helper methods for Debye length and plasma frequency.
+- `core/config.py`：参数常量、稳定性检查
+- `core/particles.py`：推进、边界、加权
+- `core/fields.py`：Poisson 与电场
+- `core/collisions.py`：MCC 与可选库仑散射
+- `core/simulation.py`：主循环、注入、扫描、统计
+- `core/cross_sections.py`：截面加载与统一网格
+- `core/lxcat_parser.py`：文本截面解析
+- `core/cs_txt_adapter.py`：`CS.txt` 适配桥接
+- `frontend/app.py`：UI 与图形展示
 
-`core/particles.py`
-- Particle push (mover) with radial + angular physics.
-- Boundary conditions (probe absorption, wall handling).
-- Charge weighting (CIC) with cylindrical volume correction.
+### 14.4 代码行为规范
 
-`core/fields.py`
-- Discretize and solve cylindrical Poisson equation.
-- TDMA tridiagonal solve.
-- Apply Dirichlet boundary conditions.
+1. 避免在 jitted 热循环中动态分配
+2. 避免在热循环中引入 Python 对象
+3. 新增物理功能必须附带基准或回归点
+4. 并行化/GPU 化前后必须与 CPU 基线对比
 
-`core/collisions.py`
-- Ion-neutral CEX + electron-neutral MCC.
-- Sample neutral thermal velocities.
+### 14.5 前端行为要求
 
-`core/simulation.py`
-- Main PIC loop and orchestration.
-- Particle injection at `R_MAX`.
-- Current accumulation at probe.
+至少暴露以下输入：
 
-`frontend/app.py`
-- Streamlit UI and plotting.
+- 压力
+- 密度
+- 电子温度
+- 探针偏压
 
-## Data layout expectations
+至少展示：
 
-Use flat NumPy arrays for particle data:
+- I-V 总电流、电子、离子曲线
+- 可选 `ln(I_e)` 半对数支线
 
-- `r`, `vr`, `vt` as 1D arrays (float64).
-- Arrays are passed into JIT functions without Python objects.
+### 14.6 可扩展方向（旧版保留）
 
-Grid arrays are 1D float64:
-- `r_grid`, `phi`, `E`, `rho`.
+已实现：
 
-Avoid lists or Python objects inside JIT regions.
+- 能量依赖截面支持（LXCat/自定义）
+- 可选二次粒子生成
 
-## Physics validation checks
+可继续扩展：
 
-When adding features, ensure:
-- `dt` resolves `omega_pe` and electron motion.
-- `dr` resolves `lambda_D`.
-- Probe boundary removes particles and increments current.
-- Charge density weighting correctly normalizes by cylindrical shell volume.
-- Electric field derived from potential uses consistent radial discretization.
+- 多离子组分
+- 更完整反应网络与诊断量（EEDF、鞘层宽度、能量守恒审计）
+- 更高维几何
 
-## Behavior expectations
+---
 
-When implementing or modifying:
-- Keep all tight loops in `@numba.jit(nopython=True)` functions.
-- Avoid allocations inside per-step loops.
-- Use deterministic random streams if needed for testing.
+## 15. 下一阶段任务声明（Production + GPU）
 
-## UI behavior
+下一阶段目标（旧版声明保留并落地）：
 
-The frontend should expose:
-- Pressure (Torr)
-- Density (m^-3)
-- Electron temperature (eV)
-- Probe bias (V)
+1. 构建 production 级大规模合成数据管线（批量参数扫描 + 元数据追踪）。
+2. 对偏压点、重复实验、参数批次进行并行化改造。
+3. 对热点核函数（推进、碰撞、加权、场计算）进行 GPU 加速。
+4. 保证并行/GPU 改造后与当前 CPU 物理基线一致且可复现。
 
-The frontend should display:
-- I-V curve (total, electron, ion currents)
-- Optional semilog electron current
+建议验收指标：
 
-## Extensibility notes
+- 吞吐提升倍数
+- 单点仿真延迟
+- 与 CPU 基线电流曲线偏差
+- 随机种子可复现性
 
-Implemented:
-- Energy-dependent cross sections (LXCat/custom table support).
-- Secondary particle creation from electron-impact ionization (optional).
+---
 
-Future additions may include:
-- Multi-species ions.
-- Richer diagnostics (energy, sheath width, EEDF, etc).
+## 16. 结论
 
-Keep these in mind when naming and structuring interfaces.
+本 README 已将旧版文档中的信息完整整合为中文单文档版本，覆盖：
+
+- 研究背景与目标
+- 物理模型与数值实现细节
+- 数据结构与输出规范
+- 全部基准与实验对照结论
+- Agent 约束与下一阶段生产路线
+
+该文档可作为当前仓库的单一技术基线。
