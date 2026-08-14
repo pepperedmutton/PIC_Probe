@@ -1,728 +1,452 @@
-# PICSIMU 项目文档（Agent 技术主文档）
+# PIC_Probe / PICSIMU
 
-## 文档策略
+PIC_Probe 是圆柱朗缪尔探针的静电 PIC-MCC 仿真软件。
 
-本仓库当前只保留两份 README，且统一使用中文：
+## 当前状态
 
-- `README.md`：面向 Agent/自动化与开发维护的完整技术文档（本文件）
-- `README_HUMAN.md`：面向人类使用者的快速说明
+本仓库当前是 **Ar/Ar+ 1D3V 研究预览**。它不是生产级软件，也没有完成生产验收。
 
-维护约定：
+`Config.PHYSICS_RELEASE_READY` 当前为 `False`。因此，`PICSimulation` 会拒绝生产模式。
 
-1. 所有技术细节先更新 `README.md`，再同步 `README_HUMAN.md` 的摘要。
-2. 不新增其它根目录 README 变体，避免文档分叉。
-3. 结果声明必须附证据路径（脚本、CSV、图像、说明文档）。
+旧文档中的以下结论已经撤销：
 
----
+- 氢等离子体是当前验证工况。
+- Kakati 2017 的直径归一化比较证明了模型正确。
+- 旧 Kakati 归一化结果可以称为“验证通过”。
+- 当前程序可以生成生产级数据。
 
-## 1. 项目概述
+这些旧结论不符合当前物种、几何和绝对电流口径。它们不能作为验证或发布证据。
 
-PICSIMU 是一个 1D 圆柱坐标 Particle-in-Cell + Monte Carlo Collisions（PIC-MCC）仿真器，
-用于生成高压碰撞鞘层条件下的 Langmuir 探针 I-V 合成数据。
+当前外部比较对象是 Cenian 等人在 2005 年发表的 Ar 探针实验。首轮真实数据预览比较已经完成，但结果不匹配实验，生产验证仍未完成。
 
-核心目标：
+## 1. 适用范围
 
-1. 建立可复现的高压等离子体 I-V 数据生成链路。
-2. 为参数反演（`n_e`, `T_e`, `V_p`）与机器学习训练提供数据。
-3. 在保证物理一致性的前提下，演进到生产级并行/GPU 流水线。
+当前恢复和验证范围如下：
 
-默认单位约定：
+- 中性气体：Ar
+- 离子：单电荷 Ar+
+- 空间：圆柱径向一维
+- 速度：`v_r`、`v_theta`、`v_z` 三个分量
+- 场：无磁场的静电 Poisson 场
+- 探针：位于内边界的完全吸收圆柱
+- 外边界：有限半径的等离子体储库
 
-- 距离：m
-- 速度：m/s
-- 电流：A 或 A/m（按 `probe_length`）
-- 温度输入：eV
+“1D3V”表示只有径向空间网格。每个宏粒子仍保留三个速度分量。
 
----
+当前代码不是通用多物种等离子体化学平台。配置中的物种名称也不表示该物种已得到验证。
 
-## 2. 研究背景与动机
+## 2. 已实现模型
 
-本项目直接承接以下工作并向高压碰撞区扩展：
+### 2.1 场和几何
 
-> Marchand et al., *Beyond analytic approximations with machine learning inference of plasma parameters and confidence intervals*, Journal of Plasma Physics, 89(1), 2023.  
-> DOI: [10.1017/S0022377823000041](https://doi.org/10.1017/S0022377823000041)
-
-原论文覆盖范围：
-
-- 碰撞近似：无碰撞（OMT/OML 思路）
-- 压力：近 0 Torr
-- 密度：`10^10 - 10^12 m^-3`
-- 典型场景：空间/低压实验等离子体
-
-PICSIMU 的补充定位：
-
-- 物理模型：从 OMT/OML 扩展到 PIC-MCC
-- 压力范围：`1 - 200 Torr`（碰撞主导）
-- 密度范围：`10^14 - 10^18 m^-3`
-- 应用场景：工业等离子体处理、大气压等离子体、高压放电诊断
-
-技术路线（旧版 README 全量信息保留并整合）：
+程序在 `R_MIN <= r <= R_MAX` 上求解圆柱 Poisson 方程：
 
 ```text
-无碰撞 OMT/OML + 回归推断  --->  高压 PIC-MCC 合成数据  --->  ML 参数反演与部署
-```
+(1/r) d/dr (r dphi/dr) = -rho/epsilon_0
 
----
-
-## 3. 总体架构与目录
-
-### 3.1 架构分层
-
-- `core/`：物理内核（Numba 加速，计算主链路）
-- `frontend/`：Streamlit 可视化与交互
-- 根目录脚本：基准测试、物理测试/数据生成入口
-
-### 3.2 目录结构（按当前仓库）
-
-```text
-PICSIMU/
-  core/
-    config.py
-    particles.py
-    fields.py
-    collisions.py
-    simulation.py
-    cross_sections.py
-    lxcat_parser.py
-    cs_txt_adapter.py
-    smooth_density_impl.py
-  frontend/
-    app.py
-  benchmarks.py
-  run_physics_accurate.py
-  CS.txt
-  results/
-    benchmarks/
-    test_runs/
-    production/
-  README.md
-  README_HUMAN.md
-```
-
----
-
-## 4. 物理模型摘要
-
-### 4.1 几何与方程
-
-- 1D 径向圆柱域：`r ∈ [R_MIN, R_MAX]`
-- 探针位于 `R_MIN`，外壁位于 `R_MAX`
-- 电势满足圆柱 Poisson：
-
-```text
-(1/r) * d/dr (r * dphi/dr) = -rho / epsilon_0
-```
-
-- Dirichlet 边界：
-
-```text
 phi(R_MIN) = V_bias
 phi(R_MAX) = V_wall
 ```
 
-### 4.2 粒子状态与推进
+场模块包含以下功能：
 
-粒子状态：`(r, v_r, v_theta)`  
-径向动力学：
+- 圆柱控制体积
+- CIC 电荷沉积
+- 控制体积归一化
+- 三对角 Poisson 求解
+- 网格电场计算
+- 线性场收集
+- 可选的守恒电荷密度平滑
 
-```text
-dv_r/dt = (q/m) * E_r + v_theta^2 / r
-```
+验证运行关闭密度平滑。
 
-角动量守恒：
+### 2.2 粒子推进
 
-```text
-v_theta_new = v_theta_old * (r_old / r_new)
-```
+粒子状态为 `(r, v_r, v_theta, v_z)`。推进器使用径向半步加速和完整漂移。
 
-推进器使用二阶速度 Verlet（旧版 README 对应说明已保留）。
-
-### 4.3 电荷加权与体积修正
-
-使用 CIC（Cloud-in-Cell）线性加权，并按圆柱壳体积归一化：
+径向加速度包含电场项和离心项：
 
 ```text
-V_j ≈ 2*pi*r_j*dr   (单位长度)
-rho_j = q_weighted / V_j
+a_r = (q/m) E_r + v_theta^2/r
 ```
 
-### 4.4 碰撞模型（MCC）
+圆柱漂移保持轴向角动量 `r*v_theta`。探针吸收进入内边界的粒子。
 
-离子-中性碰撞：
+外边界可以吸收或反射离开域的粒子。主仿真使用 Maxwell 通量分布补充电子和离子。
 
-- CEX（电荷交换）
-- 可选弹性散射
-- 概率：
+离子注入可以加入 Bohm 漂移。Cenian 2005 工况明确设置 `ION_INJECTION_BOHM=False`。
+
+### 2.3 中性碰撞
+
+电子-Ar MCC 包含以下过程：
+
+- 弹性散射
+- 激发
+- 电离
+- 多激发和多电离通道
+- 电离后的一个二次电子和一个 Ar+ 宏粒子
+
+碰撞算子按粒子停留时间抽样。它支持一个时间步内的多个碰撞事件。
+
+新电离产物继续处理父粒子剩余的碰撞时间。事件缓冲区、事件数和粒子账本都有上限检查。
+
+Ar+-Ar MCC 包含以下过程：
+
+- 共振电荷交换
+- 等质量各向同性弹性散射
+- 基于上界频率的零碰撞抽样
+
+Phelps `BACKSCATTER` 只有在显式确认对称 Ar+/Ar 映射后才能作为电荷交换。Phelps `ISOTROPIC` 用于等质量弹性散射。
+
+### 2.4 库仑散射
+
+代码保留可选的预览库仑散射算子。该算子不是发布模型。
+
+生产配置会拒绝启用该算子。运行清单也会记录此限制。
+
+### 2.5 随机数、守恒和追踪
+
+中性碰撞使用按根种子、步骤、流和粒子索引派生的计数器随机流。
+
+仿真还记录以下信息：
+
+- 初始、注入、吸收和电离生成的粒子数量
+- 电子和离子粒子账本残差
+- 各碰撞过程和通道的事件数量
+- 截面能量越界
+- 稳定性警告和运行时警告
+- 配置哈希、状态哈希和输入文件哈希
+- NumPy 随机数生成器状态
+
+账本不平衡、事件缓冲区溢出和碰撞事件上限会停止运行。
+
+## 3. 截面数据
+
+### 3.1 宽松模式
+
+研究预览可以使用常数测试截面或本地的不完整旧文件。回归测试使用程序生成的合成截面，不分发第三方原始数据。
+
+### 3.2 严格模式
+
+设置 `CROSS_SECTION_STRICT=True` 后，程序要求同时提供电子和离子截面文件。
+
+严格电子构表要求：
+
+- Ar 靶粒子
+- 电子入射粒子
+- 弹性或 `EFFECTIVE` 动量转移截面
+- 至少一个激发过程
+- 至少一个电离过程
+- 有限且一致的阈值
+- 覆盖配置的最大能量
+- collision model 可以表示的电离产物
+
+Phelps `EFFECTIVE` 是总动量转移截面。程序先减去激发和电离截面，再得到弹性部分。
+
+严格离子构表要求：
+
+- 入射物种与 `ION_SPECIES` 完全一致
+- 当前验证物种为 Ar+
+- 靶粒子为 Ar
+- 已确认的电荷交换过程
+- 弹性或 `ISOTROPIC` 过程
+- 覆盖配置的最大能量
+
+设置 `CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX=True` 只确认记录中的 Ar+/Ar 对称映射。该标志不能确认其他离子或电荷态。
+
+### 3.3 Phelps 和 Biagi 数据
+
+[截面清单](validation/cross_sections/lxcat_manifest.json) 固定了三个 LXCat 选择：
+
+- Phelps electron-Ar：Cenian 主比较输入
+- Phelps Ar+-Ar：主离子输入
+- Biagi electron-Ar：截面模型灵敏度输入
+
+当前 Cenian 主运行器使用两个 Phelps 文件。Biagi 文件不进入主比较。
+
+当前工作树不包含原始 LXCat 文件。LXCat 数据贡献者保留各自权利，第三方再分发需要相应许可。旧 Git 历史曾包含一份 LXCat 下载文件；公开发布前还必须清理该历史或取得书面再分发许可。
+
+请从 LXCat 获取文件并接受其条款。然后把文件放入：
 
 ```text
-P = 1 - exp(-n_g * sigma_total * v * dt)
+.validation_private/lxcat/
 ```
 
-电子-中性碰撞：
+文件名、SHA-256 和过程数量必须与清单一致。不要把原始 LXCat 文件提交到仓库。
 
-- 弹性/激发/电离
-- 支持能量依赖截面（LXCat 或 `CS.txt` 适配）
-- 无表时退化为常数截面
-- 电离后可选生成二次电子/离子宏粒子（`ENABLE_IONIZATION_SECONDARIES`）
+## 4. 当前本地证据
 
-可选库仑散射：
+以下结果来自 2026-08-14 的当前本地工作树：
 
-- 电子-离子、离子-离子 pitch-angle 近似散射
+| 检查 | 当前结果 | 说明 |
+|---|---:|---|
+| Pytest | 58 passed | 配置、场、粒子、随机数、碰撞、严格截面、输出和验证运行器 |
+| 快速基准 | 3 passed | 圆柱真空场、常数截面碰撞率、等质量弹性守恒 |
+| Python 依赖检查 | passed | 当前虚拟环境没有损坏的依赖 |
 
-### 4.5 注入与电流口径
+三个快速基准的当前数值如下：
 
-外边界注入采用 Maxwellian 通量估计，径向速度按通量分布采样（Rayleigh 形式）：
+| 基准 | 关键结果 |
+|---|---|
+| 圆柱真空电容器 | 最细网格相对 L-infinity 误差 `4.061e-5`；最低观测阶 `1.982` |
+| 常数截面碰撞箱 | 期望事件数 `9000`；观测事件数 `8984`；绝对 z 分数 `0.169` |
+| 等质量弹性碰撞 | 相对能量误差 `0`；绝对动量误差 `2.22e-16 kg m/s` |
+
+这些结果检查实现和独立部件。它们不证明完整探针模型已经通过实验验证。
+
+CI 工作流配置了以下矩阵：
+
+- Ubuntu 和 Windows
+- Python 3.10 和 3.13
+- 测试与快速基准
+- sdist 和 wheel 构建
+- 干净环境 wheel smoke test
+- 验证包数据存在性检查
+
+本节只报告本地结果。只有远程工作流实际完成后，才能报告 GitHub CI 结果。
+
+## 5. Cenian 2005 外部比较
+
+### 5.1 派生实验数据
+
+[实验 CSV](validation/experimental/cenian2005_fig2_case_rp_lambda_0p26.csv)来自 Cenian 等人 2005 年论文的 Figure 2。
+
+来源：
+
+- A. Cenian et al.
+- Journal of Applied Physics 97, 123310 (2005)
+- DOI: [10.1063/1.1938275](https://doi.org/10.1063/1.1938275)
+
+当前数据集只包含内部一致的 `r_p/lambda_D = 0.26` 工况。
+
+主要实验条件如下：
+
+| 参数 | 值 |
+|---|---:|
+| 气体 | Ar |
+| 压力 | `1.3 mTorr` |
+| 电子密度 | `7.15e13 m^-3` |
+| 电子温度 | `1.9 eV` |
+| 离子温度 | `0.025 eV` |
+| 探针半径 | `313 micrometers` |
+| 探针长度 | `47 mm` |
+| 偏压范围 | `-60 V` 到 `-10 V` |
+
+[来源记录](validation/experimental/cenian2005_fig2_case_rp_lambda_0p26.provenance.json)包含像素标定、数字化方法、文件哈希和使用限制。
+
+仓库不包含 Cenian 2005 原论文 PDF 或页面图像。根目录的 `Guide.pdf` 是另一篇采用 CC BY 4.0 许可的背景文献，不是本次实验数据源。没有找到允许仓库再分发 Cenian 2005 原文的开放许可。
+
+### 5.2 电流符号和单位
+
+核心结果使用：
 
 ```text
-P(v_r) ∝ v_r * exp(-m v_r^2 / (2kT)), v_r >= 0
-v_r = v_th * sqrt(-2 ln U)
+avg_current = electron-current magnitude - ion-current magnitude
 ```
 
-离子注入可加 Bohm 漂移（`ION_INJECTION_BOHM=True`）：
+因此，在负偏压离子收集区，`avg_current` 应为负值。这与 Cenian Figure 2 的符号一致。
+
+`avg_conventional_current` 的符号相反。不要用它比较该实验 CSV。
+
+宏粒子电流先按单位轴向长度计算。固定偏压运行随后乘以 `probe_length`。
+
+Cenian 运行器使用 `probe_length=0.047 m`。它输出有符号、未缩放的安培值，不拟合比例因子，也不做直径或长度归一化。
+
+### 5.3 运行器和输出
+
+入口为：
 
 ```text
-u_B = sqrt(e*Te/m_i)
+python -m validation.run_cenian2005
 ```
 
-电流定义（电子电流按正幅值报告）：
+运行器会核对：
 
-```text
-I_electron = (N_e_hit * |q_e|) / dt
-I_ion      = (N_i_hit * q_i) / dt
-I_total    = I_electron - I_ion
-```
+- LXCat 数据库角色
+- 固定 SHA-256
+- 固定过程数量
+- 严格电子和离子构表
+- 实验 CSV、来源记录和数据清单哈希
+- 数值稳定性
+- 加速电子 CFL
+- Git 提交和工作树状态
+- 每次运行必须为 `READY/PASS`，且账本、能量表越界和告警均为零
 
----
+每次完整运行写入：
 
-## 5. 数值方法与离散化细节
+- `simulation_points.csv`
+- `comparison.csv`
+- `metrics.json`
+- `manifest.json`
 
-### 5.1 网格
+所有输出均标记为 `PREVIEW`。发布判断固定为 `NOT_EVALUATED_RESEARCH_PREVIEW`。
 
-```text
-N_nodes = N_CELLS + 1
-r_j = R_MIN + j*dr
-dr = (R_MAX - R_MIN)/N_CELLS
-```
+### 5.4 2026-08-14 的实际对比结果
 
-### 5.2 粒子推进（velocity-Verlet）
+[完整结果、逐点数据和图](validation/results/cenian2005_phelps_pilot_12mm_64c_1024p_3seed/README.md)来自 11 个偏压、3 个独立种子，共 33 次运行。
 
-1. 计算旧位置加速度：`a_old = (q/m)E + v_theta^2/r`
-2. 更新位置：`r_new = r_old + v_r*dt + 0.5*a_old*dt^2`
-3. 角动量守恒更新 `v_theta`
-4. 新位置重算 `a_new`
-5. 更新速度：`v_r_new = v_r_old + 0.5*(a_old+a_new)*dt`
+![Cenian 2005 experiment and PIC-MCC pilot comparison](validation/results/cenian2005_phelps_pilot_12mm_64c_1024p_3seed/comparison_plot.png)
 
-### 5.3 粒子边界
+| 指标 | 结果 |
+|---|---:|
+| 平均偏差 | `-12.282605 µA` |
+| RMSE | `13.019556 µA` |
+| 归一化 RMSE | `0.891511` |
+| 平均绝对相对误差 | `0.896657` |
+| 仿真/实验平均幅值比 | `1.897` |
+| 文件定义的组合 2σ 内点数 | `0 / 11` |
 
-- `r <= R_MIN`：吸收并计入探针电流
-- `r >= R_MAX`：吸收或反射（可配置）
-- 死粒子槽位可用于后续注入复用
+所有 33 次运行都是 `READY/PASS`。电子和离子账本残差、截面能量越界和告警均为零。但是，仿真电流幅值在所有点都比实验高 `84.2%` 到 `99.9%`。因此，本轮结果不通过实验一致性检查，生产锁保持关闭。
 
-### 5.4 CIC 加权
+[三点敏感性筛选](validation/results/cenian2005_sensitivity_screen/README.md)使用 `-50 V`、`-30 V` 和 `-10 V`：
 
-```text
-xi = (r - R_MIN)/dr
-j = floor(xi)
-w = xi - j
-rho[j]   += q*(1-w)
-rho[j+1] += q*w
-```
+- 把外域从 `12 mm` 增加到 `20 mm` 后，前两点的电流幅值下降约 `11.6%`，但 `-10 V` 上升 `15.4%`。
+- 把预热从 `0.02` 增加到 `0.10` 个离子渡越时间后，前两点下降约 `8.2%`，但 `-10 V` 上升 `27.8%`。
 
-### 5.5 圆柱 Poisson 离散
+这两个筛选都不能统一解释接近 `1.9` 倍的幅值。不得用经验比例因子掩盖该偏差。下一步应先审计外边界储库、初始离子密度与速度一致性、探针有效长度和电流归一化。
 
-通量形式离散后得到三对角系统：
+## 6. 安装和快速命令
 
-```text
-a_j*phi_{j-1} + b_j*phi_j + c_j*phi_{j+1} = d_j
-```
+### 6.1 环境
 
-其中：
-
-```text
-a_j = r_{j-1/2}/(r_j*dr^2)
-b_j = -(r_{j+1/2}+r_{j-1/2})/(r_j*dr^2)
-c_j = r_{j+1/2}/(r_j*dr^2)
-d_j = -rho_j/epsilon_0
-```
-
-线性系统用 TDMA（Thomas）`O(N)` 求解。
-
-### 5.6 电场
-
-```text
-E = -dphi/dr
-```
-
-- 内点：中心差分
-- 边界：单边差分
-
-### 5.7 初始分布（加速收敛）
-
-采用 Child-Langmuir 风格初始电势剖面，构造接近鞘层的初值，减少 burn-in：
-
-```text
-phi(r) = V_bias + (V_wall - V_bias) * ((r-R_MIN)/s)^(4/3)
-```
-
-并配套：
-
-- 电子密度：Boltzmann 关系
-- 离子密度：连续性近似（Bohm 速度）
-- 位置采样按 `n(r)*r` 权重
-
-### 5.8 电压扫描（warm-start）
-
-```text
-for V in voltages:
-  设置 V_bias
-  burn-in
-  sampling
-  记录 I_total/I_electron/I_ion
-```
-
-默认支持从上一偏压态继续（warm-start），并支持 bias ramp 平滑过渡。
-
-### 5.9 单步主循环顺序
-
-1. 外边界注入
-2. 粒子推进
-3. 电子碰撞
-4. 二次粒子生成（可选）
-5. 离子碰撞
-6. 库仑散射（可选）
-7. 电荷加权 +（可选）平滑
-8. Poisson 求解 + 电场更新
-
----
-
-## 6. 数据模型、输出与命名规范
-
-### 6.1 Core 数据模型
-
-粒子数组（扁平 1D NumPy）：
-
-- `r_e`, `vr_e`, `vt_e`
-- `r_i`, `vr_i`, `vt_i`
-
-场与网格数组：
-
-- `r_grid`, `phi`, `E`, `rho`, `rho_e`, `rho_i`, `ne`, `ni`
-
-`SimulationResult` 输出：
-
-- `avg_current`
-- `r_grid`, `phi`, `ne`, `ni`
-- `ion_r`, `ion_vr`
-
-`scan_voltage_range()` 返回：
-
-- `"voltages"`
-- `"I_total"`
-- `"I_electron"`
-- `"I_ion"`
-
-### 6.2 结果目录
-
-- `results/benchmarks/`：`benchmarks.py` 输出（CSV + PNG）
-- `results/test_runs/`：开发测试与单次运行输出
-- `results/production/`：生产级数据目录（预留）
-
-### 6.3 I-V 文件命名约定
-
-当前主测试脚本采用时间戳命名：
-
-- `iv_curve_YYYYMMDD_HHMMSS.csv`
-- `iv_curve_YYYYMMDD_HHMMSS.png`
-
-不再使用参数拼接作为主命名方案。
-
----
-
-## 7. 稳定性检查与数值约束
-
-`Config.stability_warnings()` 包含以下约束检查：
-
-1. Debye 解析：`dr < lambda_D`
-2. 等离子体频率：`dt * omega_pe < 0.2`
-3. 电子 CFL：`v_th,e * dt < dr`
-4. 离子 CFL：`v_th,i * dt < dr`
-
-触发时给出 RuntimeWarning，提醒可能的噪声或失稳风险。
-
----
-
-## 8. 当前实现假设与局限
-
-### 8.1 核心假设
-
-1. 静电近似（不含磁场）
-2. 1D 径向几何（无轴向/方位角空间分辨）
-3. 中性气体温度固定约 `0.026 eV`（~300K）
-4. 外边界采用 Maxwellian 储库注入模型
-5. 外壁电势可配置，默认 `0 V`
-6. 离子注入可启用 Bohm 漂移
-7. 截面可用常数或能量依赖表
-8. 电离二次粒子、离子弹性、库仑碰撞均为可选开关
-
-### 8.2 局限
-
-1. 空间维度仍为 1D 径向
-2. 化学与碰撞过程为简化模型，不是全反应网络
-3. 高压强区对微观过程的细节仍受截面质量与模型开关影响
-
----
-
-## 9. 运行方式
-
-### 9.1 命令行快速测试
+支持的 Python 版本为 3.10 到 3.13。
 
 ```powershell
-@'
-from core.config import Config
-from core.simulation import PICSimulation
-
-cfg = Config()
-sim = PICSimulation(cfg, n_particles=2000, v_bias=-10.0, seed=1)
-res = sim.run(n_steps=200, n_warmup=100)
-print(res.avg_current)
-'@ | python -
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[test,ui]"
 ```
 
-### 9.2 基准与主测试入口
+### 6.2 本地测试
 
-- `python benchmarks.py`
-- `python run_physics_accurate.py`
+```powershell
+python -m pytest
+python benchmarks.py
+```
 
-### 9.3 前端
+### 6.3 研究预览计划
+
+```powershell
+python run_physics_accurate.py --plan-only
+```
+
+### 6.4 截面文件检查
+
+该命令要求清单中的 Phelps 和 Biagi 文件都在本地目录中。
+
+```powershell
+python -m validation.cross_sections.validate_lxcat --data-dir .validation_private/lxcat
+```
+
+### 6.5 Cenian 计划检查
+
+```powershell
+python -m validation.run_cenian2005 --electron-lxcat .validation_private/lxcat/electron_ar_phelps_20260814.txt --ion-lxcat .validation_private/lxcat/ion_ar_phelps_20260814.txt --plan-only
+```
+
+该命令检查输入和计划，但不启动仿真。
+
+### 6.6 Cenian 短时 pilot
+
+输出目录必须不存在或为空。
+
+```powershell
+python -m validation.run_cenian2005 --electron-lxcat .validation_private/lxcat/electron_ar_phelps_20260814.txt --ion-lxcat .validation_private/lxcat/ion_ar_phelps_20260814.txt --output-dir validation/results/cenian2005_pilot --cells 64 --particles 1024 --dt-s 3e-11 --domain-radius-m 0.012 --seeds 101 202 303 --warmup-steps 31708 --sample-steps 31708
+```
+
+该 pilot 只检查数据链路和短时统计。它不是稳态或生产验收运行。
+
+### 6.7 可视化前端
 
 ```powershell
 streamlit run frontend/app.py
 ```
 
-### 9.4 使用 LXCat/CS 截面
+前端只提供研究预览。界面中的验证模式仍然锁定。
 
-可在 `Config` 设置：
-
-- `LXCAT_ELECTRON_FILE`
-- `LXCAT_ION_FILE`
-
-默认会尝试读取仓库根目录 `CS.txt`。若不希望启用，设为 `None` 即可。  
-`core/cross_sections.py`、`core/lxcat_parser.py`、`core/cs_txt_adapter.py` 负责解析与表格插值。
-
----
-
-## 10. Benchmark 基准算例记录（LabArgon）
-
-旧 README 的基准算例信息完整保留如下：
-
-- 名称：`LabArgon-0p1Torr-2eV-IV`
-- 气体：Argon（Ar+，40 AMU）
-- `N0 = 1.0e16 m^-3`
-- `Te = 2.0 eV`
-- `Ti = 0.026 eV`
-- `P_Torr = 0.1`
-- `R_MIN = 1.5e-4 m`
-- `R_MAX = 5.0e-3 m`
-- `V_WALL = 0 V`
-- `L = 0.01 m`
-
-数值设置：
-
-- `N_CELLS = 100`
-- `DT = 20e-12 s`
-- `sigma_cex = 8.0e-18 m^2`
-- `n_particles = 10000`（每物种）
-- `V_start=-40 V`, `V_end=+10 V`, `n_steps=21`
-- `n_burn_in=20000`, `n_sampling=20000`
-
-历史参考输出（旧文档记录）：
-
-- `results/iv_data_labargon_posI.csv`
-- `results/iv_curve_labargon_posI.png`
-- `results/iv_curve_labargon_semilog_posI.png`
-
-预期特征：
-
-- I-V 随电压上升单调上升
-- 浮动电位约 `-10 V`
-- 半对数电子支线近似线性
-
----
-
-## 11. 物理模型验证状态（已完成）
-
-### Test 1：真空圆柱电容器
-
-- 目的：验证圆柱 Poisson 求解器
-- 结果：最大相对误差约 `0.0017%`
-- 状态：通过（2026-01-20）
-- 输出：
-  - `results/benchmarks/benchmark_test1_vacuum_capacitor.csv`
-  - `results/benchmarks/benchmark_test1_vacuum_capacitor.png`
-
-### Test 2：电子温度推断
-
-- 目的：验证电子速度采样与 Boltzmann 关系
-- 配置：无碰撞、`Te=2.0 eV`、`V=-10~-2 V`
-- 结果：`slope = 0.494 V^-1`, 推断 `Te = 2.02 eV`
-- 状态：通过（2026-01-20）
-- 输出：
-  - `results/benchmarks/benchmark_test2_electron_temperature.csv`
-  - `results/benchmarks/benchmark_test2_electron_temperature.png`
-
-### Test 3：OML 离子动力学
-
-- 目的：验证角动量守恒与 `I_i^2 ∝ |V|`
-- 配置：`R_MIN=500 um`, `N0=5e15 m^-3`, 无碰撞
-- 结果：`R^2 = 0.993`
-- 状态：通过（2026-01-20）
-- 输出：
-  - `results/benchmarks/benchmark_test3_oml_ion.csv`
-  - `results/benchmarks/benchmark_test3_oml_ion.png`
-
-### Test 4：碰撞阻尼
-
-- 目的：验证 CEX 导致离子电流随压强抑制
-- 结果：`I_ion(10 Torr) / I_ion(0 Torr) = 0.000`
-- 状态：通过（2026-01-20）
-- 输出：
-  - `results/benchmarks/benchmark_test4_collisional_damping.csv`
-  - `results/benchmarks/benchmark_test4_collisional_damping.png`
-
-### Test 5：氢等离子体实验对照（直径归一化）
-
-- 目的：与公开氢等离子体实验做同口径量级核对
-- 参考文献：Kakati et al., *Scientific Reports* 7, 490 (2017), PMCID: PMC5593904
-- 关键事实：
-  - 实验探针直径：`0.15 mm`
-  - 仿真探针直径：`0.4 mm`
-  - `+80 V` clean plasma 读图约：`13.5 mA`
-- 直径归一化：
+## 7. 目录
 
 ```text
-I_norm = I_exp * (d_sim / d_exp)
-       = 13.5 mA * (0.4 / 0.15)
-       = 36.0 mA
+core/                         物理、数值、随机数和追踪核心
+frontend/                     Streamlit 研究预览界面
+tests/                        自动化回归测试
+validation/
+  cross_sections/             LXCat 清单、说明和检查器
+  experimental/               Cenian 派生 CSV 和来源记录
+  results/                    本轮外部比较输出
+  run_cenian2005.py           Cenian 运行器
+benchmarks.py                 快速基准和收敛数据结构
+run_physics_accurate.py       通用研究预览扫描入口
+pyproject.toml                依赖、打包和命令行入口
 ```
 
-按 `L = 10 mm` 换算为每单位长度：`~3.6 A/m`
+安装 wheel 后也可以使用：
 
-- 仿真：`I_sim(+80V) ≈ 2.700 A/m`
-  - 数据文件：`results/test_runs/iv_curve_20260310_110921.csv`
-- 差异：约 `25%`
-- 结论：作为一阶量级一致性验证，通过
+- `picsimu-benchmarks`
+- `picsimu-preview-study`
+- `picsimu-validate-cenian`
 
-核心结论（旧版全量结论保留）：
+## 8. 已知限制
 
-- 圆柱几何项处理正确
-- 角动量守恒实现正确
-- 速度 Verlet 积分精度满足要求
-- CIC + 体积修正正确
-- OML 标度律得到验证
-- 碰撞阻尼趋势得到验证
-- 与公开氢实验量级达到一阶一致
+当前限制包括：
 
----
+1. 生产锁关闭。任何结果都不能标记为生产结果。
+2. 空间模型只有圆柱径向一维。
+3. 模型没有磁场、有限探针端部和三维几何。
+4. 有符号电流通过无限圆柱的单位长度结果乘探针长度得到。
+5. 当前验证范围只有单电荷 Ar+ 和等质量 Ar 中性粒子。
+6. 模型没有完整的多物种反应网络。
+7. 外边界是给定温度和密度的储库，不是完整实验装置。
+8. 边界新粒子的位移仍使用碰撞前速度。运行清单明确记录此项。
+9. 可选库仑算子是预览模型。
+10. 常数截面只适合测试和快速预览。
+11. 外部实验比较尚未完成时间步、网格、粒子数、域半径和种子收敛。
+12. Cenian 数据来自单人图像数字化，没有独立复核。
+13. 实验密度和温度来自同一条探针曲线，因此不是盲验证。
+14. 数字化不确定度不包含完整实验系统误差。
+15. `-55 V` 和 `-60 V` 可能受有限探针端部电流影响。
+16. `12 mm` pilot 域小于论文数值模型在高负偏压使用的最大约 `66.7 mm` 域。
+17. 2026 年 LXCat Phelps 检索版本尚未证明与论文使用的 1997 年表逐值相同。
+18. GitHub `master` 和旧 Git 历史仍含一份受限 LXCat 下载文件；公开发布前必须取得许可或经明确批准清理历史。
+19. 项目代码许可证尚未由权利人选择。
 
-## 12. 物理模型校准说明（旧版信息整合）
+## 9. 生产验证路线
 
-### 12.1 校准目标
+当前完成项：
 
-1. 验证场求解：`1/r` 几何项正确性
-2. 验证电子统计：`ln(I_e)` 与偏压关系
-3. 验证离子动力学：OML 标度与角动量守恒
-4. 验证碰撞趋势：CEX 抑制随压强增强
+- [x] 配置、粒子、场、碰撞和追踪回归测试
+- [x] 三个快速部件基准
+- [x] 严格 Phelps 主截面链路
+- [x] Biagi 灵敏度输入清单
+- [x] Cenian 派生实验数据和来源记录
+- [x] 有符号、未缩放电流比较运行器
+- [x] sdist、wheel 和 CI 配置
+- [x] 11 点、3 种子 Cenian 真实实验对比和独立复核
+- [x] 三点 `20 mm` 外域与长预热方向筛选
+- [x] 用干净的物理模型 v3 提交逐值重放 `-30 V` 代表点
 
-### 12.2 为什么是这四类 benchmark
+仍需完成：
 
-1. 真空圆柱电容器：解析可比，最低成本验证 Poisson
-2. 电子温度检查：直接检验速度采样和通量注入
-3. OML 离子动力学：直接检验轨道动力学与守恒项
-4. 碰撞阻尼：直接检验碰撞算子与压强响应
+- [ ] 达到足够的预热和采样离子渡越时间
+- [ ] 完成时间步收敛
+- [ ] 完成网格收敛
+- [ ] 完成宏粒子数收敛
+- [ ] 按论文工况把域检查扩展到约 `21.8 mm`、`48.5 mm` 和 `66.7 mm`，并确认 `-55/-60 V`
+- [ ] 完成多独立种子的统计稳定性检查
+- [ ] 完成 Phelps 与 Biagi 截面灵敏度分析
+- [ ] 审计边界储库、初始离子状态、电流归一化和有效探针长度
+- [ ] 独立复核实验图像数字化
+- [ ] 增加至少一个独立实验数据集
+- [ ] 定义并通过预先注册的验收阈值
+- [ ] 完成远程 CI 和可复现发布构建
+- [ ] 处理旧 Git 历史中的 LXCat 文件并由权利人选择代码许可证
 
-### 12.3 OML 测试关键配置（旧版表格保留）
+只有这些发布门全部通过后，维护者才能审查 `PHYSICS_RELEASE_READY`。不要为了启动生产模式而直接修改该锁。
 
-| 参数 | 值 | 说明 |
-|---|---|---|
-| 探针半径 | `R_MIN = 5.0e-4 m` | 500 um |
-| 外壁半径 | `R_MAX = 5.0e-3 m` | 5 mm |
-| 密度 | `N0 = 5.0e15 m^-3` | 中等密度 |
-| 电子温度 | `Te = 2.0 eV` | 实验室典型 |
-| 离子温度 | `Ti = 0.026 eV` | 室温 |
-| 宏粒子数 | `20000` | 每个物种 |
-| 稳定步数 | `200000` | 充分热化 |
-| 采样步数 | `80000` | 提升统计 |
-| 扫描区间 | `-50 -> -10 V` | 离子饱和区 |
-| 碰撞 | `P=0, sigma_cex=0` | OML 条件 |
+## 10. 文档入口
 
-Debye 检查（旧版说明保留）：
-
-```text
-lambda_D ≈ 149 um,  r_probe = 500 um > lambda_D
-```
-
-符合 OML 条件。
-
-### 12.4 OML 样本数据（旧版保留）
-
-| V_bias (V) | \|V\| (V) | I_ion (A) | I_ion^2 (A^2) | 拟合值 (A^2) | 相对误差 |
-|---|---:|---:|---:|---:|---:|
-| -50 | 50 | 0.02359 | 5.564e-4 | 5.557e-4 | 0.13% |
-| -45 | 45 | 0.02212 | 4.895e-4 | 5.053e-4 | 3.13% |
-| -40 | 40 | 0.02121 | 4.498e-4 | 4.548e-4 | 1.10% |
-| -35 | 35 | 0.02030 | 4.120e-4 | 4.044e-4 | 1.88% |
-| -30 | 30 | 0.01903 | 3.623e-4 | 3.540e-4 | 2.33% |
-| -25 | 25 | 0.01789 | 3.201e-4 | 3.036e-4 | 5.45% |
-| -20 | 20 | 0.01622 | 2.632e-4 | 2.532e-4 | 3.95% |
-| -15 | 15 | 0.01404 | 1.972e-4 | 2.027e-4 | 2.74% |
-| -10 | 10 | 0.01164 | 1.356e-4 | 1.523e-4 | 10.99% |
-
-残差解读（旧版保留）：
-
-- 高电压端（-50~-35V）：误差 < 3.2%
-- 中电压端（-30~-20V）：误差约 2.3%~5.5%
-- 低电压端（-15~-10V）：偏离增大（过渡区 + 小电流统计涨落）
-
-### 12.5 碰撞阻尼样本（旧版保留）
-
-| P_Torr | I_ion (A/m) |
-|---:|---:|
-| 0.0 | 3.355e-3 |
-| 0.1 | 1.342e-3 |
-| 0.5 | 1.006e-3 |
-| 1.0 | 3.355e-4 |
-| 3.0 | 0.000e0 |
-| 5.0 | 0.000e0 |
-| 10.0 | 0.000e0 |
-
-### 12.6 校准总表（旧版保留）
-
-| 测试项目 | 指标 | 结果 | 状态 |
-|---|---|---|---|
-| Test 1 - Poisson | 最大相对误差 | 0.0017% | 优秀 |
-| Test 2 - 电子温度 | 推断 Te | 2.02 eV | 通过 |
-| Test 3 - OML | R^2 | 0.993 | 通过 |
-| Test 4 - 碰撞阻尼 | 抑制比 | 0.000 | 通过 |
-| Test 5 - 氢实验归一化 | +80V 电流量级 | `2.700 A/m` vs `3.6 A/m` | 通过（差异约25%） |
-
-综合结论：
-
-- 当前模型可作为生产级数据生成的物理基线
-- 后续优化应保持对该基线的数值一致性回归
-
----
-
-## 13. 当前主测试口径（最新实现）
-
-`run_physics_accurate.py` 当前主配置（旧信息 + 最新变更统一）：
-
-- 等离子体：氢
-- 压力：`0.3 Pa`（约 `2.25e-3 Torr`）
-- 密度：`1e16 m^-3`
-- 温度：`1 eV`
-- 探针直径：`0.4 mm`
-- 扫描区间：`-30 -> +100 V`
-- 每偏压点：稳定后采样，重复 5 次取均值
-- 关闭二次电离电子：`ENABLE_IONIZATION_SECONDARIES=False`
-- 输出：`results/test_runs/iv_curve_<timestamp>.csv/png`
-
----
-
-## 14. Agent 开发约束（由旧版 Agent Guide 合并）
-
-### 14.1 必需技术栈
-
-- Python 3.10+
-- NumPy
-- Numba（重循环必须 `nopython=True`）
-- Streamlit
-- Matplotlib
-
-### 14.2 架构硬约束
-
-1. 几何固定为 1D 径向圆柱域
-2. 粒子必须保留 `v_theta`
-3. 径向推进必须包含离心项 `v_theta^2 / r`
-4. 必须显式保持角动量守恒
-5. 加权必须做圆柱壳体积归一化
-6. Poisson 必须用圆柱拉普拉斯离散 + TDMA
-7. 碰撞至少包含离子-中性 CEX 和电子-中性基本过程
-8. 核心重循环必须 Numba 化
-
-### 14.3 模块职责
-
-- `core/config.py`：参数常量、稳定性检查
-- `core/particles.py`：推进、边界、加权
-- `core/fields.py`：Poisson 与电场
-- `core/collisions.py`：MCC 与可选库仑散射
-- `core/simulation.py`：主循环、注入、扫描、统计
-- `core/cross_sections.py`：截面加载与统一网格
-- `core/lxcat_parser.py`：文本截面解析
-- `core/cs_txt_adapter.py`：`CS.txt` 适配桥接
-- `frontend/app.py`：UI 与图形展示
-
-### 14.4 代码行为规范
-
-1. 避免在 jitted 热循环中动态分配
-2. 避免在热循环中引入 Python 对象
-3. 新增物理功能必须附带基准或回归点
-4. 并行化/GPU 化前后必须与 CPU 基线对比
-
-### 14.5 前端行为要求
-
-至少暴露以下输入：
-
-- 压力
-- 密度
-- 电子温度
-- 探针偏压
-
-至少展示：
-
-- I-V 总电流、电子、离子曲线
-- 可选 `ln(I_e)` 半对数支线
-
-### 14.6 可扩展方向（旧版保留）
-
-已实现：
-
-- 能量依赖截面支持（LXCat/自定义）
-- 可选二次粒子生成
-
-可继续扩展：
-
-- 多离子组分
-- 更完整反应网络与诊断量（EEDF、鞘层宽度、能量守恒审计）
-- 更高维几何
-
----
-
-## 15. 下一阶段任务声明（Production + GPU）
-
-下一阶段目标（旧版声明保留并落地）：
-
-1. 构建 production 级大规模合成数据管线（批量参数扫描 + 元数据追踪）。
-2. 对偏压点、重复实验、参数批次进行并行化改造。
-3. 对热点核函数（推进、碰撞、加权、场计算）进行 GPU 加速。
-4. 保证并行/GPU 改造后与当前 CPU 物理基线一致且可复现。
-
-建议验收指标：
-
-- 吞吐提升倍数
-- 单点仿真延迟
-- 与 CPU 基线电流曲线偏差
-- 随机种子可复现性
-
----
-
-## 16. 结论
-
-本 README 已将旧版文档中的信息完整整合为中文单文档版本，覆盖：
-
-- 研究背景与目标
-- 物理模型与数值实现细节
-- 数据结构与输出规范
-- 全部基准与实验对照结论
-- Agent 约束与下一阶段生产路线
-
-该文档可作为当前仓库的单一技术基线。
+- [人类快速说明](README_HUMAN.md)
+- [Cenian 2005 运行说明](validation/CENIAN2005.md)
+- [实验数据说明](validation/experimental/README.md)
+- [截面数据说明](validation/cross_sections/README.md)

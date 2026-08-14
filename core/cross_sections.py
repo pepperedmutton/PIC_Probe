@@ -1,30 +1,101 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from core.cs_txt_adapter import parse_cs_txt
-
 import numpy as np
 
-
-@dataclass(frozen=True)
-class CrossSectionProcess:
-    kind: str
-    target: str
-    label: str
-    energy_ev: np.ndarray
-    sigma_m2: np.ndarray
+from core.cs_txt_adapter import (
+    CrossSectionProcess,
+    parse_cross_section_file,
+    parse_cs_txt,
+)
 
 
 @dataclass(frozen=True)
 class ElectronXSections:
+    """Electron cross sections on one uniform energy grid.
+
+    Total tables have shape (n_bins,). Channel tables have shape
+    (n_channels, n_bins). Threshold arrays have shape (n_channels,).
+    All arrays have type float64 and are read-only.
+    """
+
     e_min: float
     inv_de: float
     sigma_elastic: np.ndarray
     sigma_excitation: np.ndarray
     sigma_ionization: np.ndarray
+    excitation_thresholds_ev: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    excitation_channel_tables: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=np.float64)
+    )
+    ionization_thresholds_ev: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )
+    ionization_channel_tables: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=np.float64)
+    )
+
+    def __post_init__(self) -> None:
+        sigma_elastic = _readonly_vector(
+            self.sigma_elastic,
+            "The electron elastic table",
+        )
+        sigma_excitation = _readonly_vector(
+            self.sigma_excitation,
+            "The electron excitation table",
+        )
+        sigma_ionization = _readonly_vector(
+            self.sigma_ionization,
+            "The electron ionization table",
+        )
+        if not (
+            sigma_elastic.shape
+            == sigma_excitation.shape
+            == sigma_ionization.shape
+        ):
+            raise ValueError("The electron cross-section tables have different shapes.")
+
+        excitation_thresholds, excitation_channels = _normalize_channels(
+            self.excitation_thresholds_ev,
+            self.excitation_channel_tables,
+            sigma_excitation,
+            "excitation",
+        )
+        ionization_thresholds, ionization_channels = _normalize_channels(
+            self.ionization_thresholds_ev,
+            self.ionization_channel_tables,
+            sigma_ionization,
+            "ionization",
+        )
+        object.__setattr__(self, "sigma_elastic", sigma_elastic)
+        object.__setattr__(self, "sigma_excitation", sigma_excitation)
+        object.__setattr__(self, "sigma_ionization", sigma_ionization)
+        object.__setattr__(
+            self,
+            "excitation_thresholds_ev",
+            excitation_thresholds,
+        )
+        object.__setattr__(
+            self,
+            "excitation_channel_tables",
+            excitation_channels,
+        )
+        object.__setattr__(
+            self,
+            "ionization_thresholds_ev",
+            ionization_thresholds,
+        )
+        object.__setattr__(
+            self,
+            "ionization_channel_tables",
+            ionization_channels,
+        )
 
 
 @dataclass(frozen=True)
@@ -35,244 +106,176 @@ class IonXSections:
     sigma_elastic: np.ndarray
 
 
-_KNOWN_KINDS = (
-    "ELASTIC",
-    "EFFECTIVE",
-    "EXCITATION",
-    "IONIZATION",
-    "ATTACHMENT",
-    "CHARGE EXCHANGE",
-    "CHARGE-EXCHANGE",
-    "BACKSCATTER",
-)
+def _readonly_vector(values: np.ndarray, name: str) -> np.ndarray:
+    vector = np.array(values, dtype=np.float64, copy=True, order="C")
+    if vector.ndim != 1:
+        raise ValueError(f"{name} must have one dimension.")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError(f"{name} has a nonfinite value.")
+    if np.any(vector < 0.0):
+        raise ValueError(f"{name} has a negative value.")
+    vector.flags.writeable = False
+    return vector
 
 
-def _normalize_kind(line: str) -> str | None:
-    text = " ".join(line.strip().split())
-    if not text:
-        return None
-    upper = text.upper()
-    if upper in _KNOWN_KINDS:
-        return upper
-    if upper.startswith("CHARGE"):
-        return "CHARGE EXCHANGE"
-    return None
+def _normalize_channels(
+    thresholds_ev: np.ndarray,
+    channel_tables: np.ndarray,
+    total_table: np.ndarray,
+    process_name: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    thresholds = np.array(
+        thresholds_ev,
+        dtype=np.float64,
+        copy=True,
+        order="C",
+    )
+    channels = np.array(
+        channel_tables,
+        dtype=np.float64,
+        copy=True,
+        order="C",
+    )
+    if thresholds.ndim != 1:
+        raise ValueError(f"The {process_name} thresholds must have one dimension.")
+    if channels.ndim != 2:
+        raise ValueError(f"The {process_name} channel tables must have two dimensions.")
+
+    n_bins = total_table.size
+    if thresholds.size == 0 and channels.size == 0:
+        if np.any(total_table > 0.0):
+            thresholds = np.zeros(1, dtype=np.float64)
+            channels = np.array(total_table[np.newaxis, :], copy=True)
+        else:
+            channels = np.empty((0, n_bins), dtype=np.float64)
+    if channels.shape != (thresholds.size, n_bins):
+        raise ValueError(
+            f"The {process_name} channel tables must have shape "
+            f"({thresholds.size}, {n_bins})."
+        )
+    if not np.all(np.isfinite(thresholds)):
+        raise ValueError(f"The {process_name} thresholds have a nonfinite value.")
+    if np.any(thresholds < 0.0):
+        raise ValueError(f"The {process_name} thresholds have a negative value.")
+    if not np.all(np.isfinite(channels)):
+        raise ValueError(f"The {process_name} channel tables have a nonfinite value.")
+    if np.any(channels < 0.0):
+        raise ValueError(f"The {process_name} channel tables have a negative value.")
+    if not np.allclose(
+        np.sum(channels, axis=0),
+        total_table,
+        rtol=1.0e-13,
+        atol=0.0,
+    ):
+        raise ValueError(
+            f"The {process_name} channel tables do not sum to the total table."
+        )
+    thresholds.flags.writeable = False
+    channels.flags.writeable = False
+    return thresholds, channels
 
 
-def _is_separator(line: str) -> bool:
-    stripped = line.strip()
-    return stripped.startswith("-") and len(stripped) >= 5
+def _is_electron(text: str) -> bool:
+    return text.strip().casefold() in {"e", "e-", "electron"}
 
 
-def _parse_target_line(line: str) -> tuple[str, str]:
-    text = line.strip()
-    if "<->" in text:
-        left, right = text.split("<->", 1)
-        return left.strip(), right.strip()
-    if "->" in text:
-        left, right = text.split("->", 1)
-        return left.strip(), right.strip()
-    return text, ""
+def _canonical_species(text: str) -> str:
+    return re.sub(r"[\s^{}]", "", text).casefold()
 
 
-def _parse_table(lines: list[str], start: int) -> tuple[np.ndarray, np.ndarray, int]:
-    energy: list[float] = []
-    sigma: list[float] = []
-    i = start
-    while i < len(lines) and not _is_separator(lines[i]):
-        parts = lines[i].strip().split()
-        if len(parts) >= 2:
-            try:
-                energy.append(float(parts[0]))
-                sigma.append(float(parts[1]))
-            except ValueError:
-                pass
-        i += 1
-    return np.asarray(energy, dtype=float), np.asarray(sigma, dtype=float), i
-
-
-def _scale_from_headers(headers: list[str]) -> float:
-    sigma_scale = 1.0
-    for header in headers:
-        upper = header.upper()
-        if "CM2" in upper or "CM^2" in upper:
-            sigma_scale = 1.0e-4
-            break
-    return sigma_scale
-
-
-def _extract_target_from_species(species: str) -> str:
-    text = species.strip()
-    if "/" in text:
-        return text.split("/", 1)[1].strip()
-    return text
-
-
-def _infer_kind_from_process(process: str) -> str | None:
-    upper = process.upper()
-    if "IONIZATION" in upper:
-        return "IONIZATION"
-    if "EXCITATION" in upper:
-        return "EXCITATION"
-    if "ATTACH" in upper:
-        return "ATTACHMENT"
-    if "CHARGE" in upper:
-        return "CHARGE EXCHANGE"
-    if "ELASTIC" in upper or "BACKSCAT" in upper or "BACKSCATTER" in upper or "MOMENTUM" in upper:
-        return "ELASTIC"
-    return None
-
-
-def _process_exists(
-    processes: list[CrossSectionProcess],
-    kind: str,
-    target: str,
-    energy_ev: np.ndarray,
-) -> bool:
-    for proc in processes:
-        if proc.kind != kind:
-            continue
-        if proc.target.strip().lower() != target.strip().lower():
-            continue
-        if proc.energy_ev.size != energy_ev.size:
-            continue
-        if proc.energy_ev.size > 0 and proc.energy_ev[0] == energy_ev[0] and proc.energy_ev[-1] == energy_ev[-1]:
-            return True
-    return False
-
-
-def load_lxcat_text(path: Path | str, default_target: str | None = None) -> list[CrossSectionProcess]:
-    """Parse LXCat-style text file into cross-section process blocks."""
-    lines = Path(path).read_text(encoding="utf-8", errors="ignore").splitlines()
-    processes: list[CrossSectionProcess] = []
-
-    # First pass: keyword-based blocks (ELASTIC / IONIZATION / etc).
-    i = 0
-    while i < len(lines):
-        kind = _normalize_kind(lines[i])
-        if kind is None:
-            i += 1
-            continue
-
-        if i + 1 >= len(lines):
-            break
-        target, label = _parse_target_line(lines[i + 1])
-        i += 2
-
-        header_lines: list[str] = []
-        while i < len(lines) and not _is_separator(lines[i]):
-            header_lines.append(lines[i])
-            i += 1
-        if i >= len(lines):
-            break
-        i += 1  # skip separator
-
-        sigma_scale = _scale_from_headers(header_lines)
-        energy, sigma, i = _parse_table(lines, i)
-        if sigma_scale != 1.0:
-            sigma = sigma * sigma_scale
-        i += 1  # skip end separator
-
-        if energy.size:
-            e_arr = energy
-            s_arr = sigma
-            order = np.argsort(e_arr)
-            processes.append(
-                CrossSectionProcess(
-                    kind=kind,
-                    target=target,
-                    label=label,
-                    energy_ev=e_arr[order],
-                    sigma_m2=s_arr[order],
-                )
-            )
-
-    # Second pass: SPECIES/PROCESS blocks.
-    pending_species: str | None = None
-    pending_process: str | None = None
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if line.startswith("SPECIES:"):
-            pending_species = line.split(":", 1)[1].strip()
-        elif line.startswith("PROCESS:"):
-            pending_process = line.split(":", 1)[1].strip()
-        elif line.startswith("COLUMNS:"):
-            # Find start of numeric table after separator.
-            i += 1
-            while i < len(lines) and not _is_separator(lines[i]):
-                i += 1
-            if i >= len(lines):
-                break
-            i += 1
-
-            energy, sigma, i = _parse_table(lines, i)
-            if energy.size and pending_species and pending_process:
-                kind = _infer_kind_from_process(pending_process)
-                if kind:
-                    target = _extract_target_from_species(pending_species)
-                    if not _process_exists(processes, kind, target, energy):
-                        order = np.argsort(energy)
-                        processes.append(
-                            CrossSectionProcess(
-                                kind=kind,
-                                target=target,
-                                label=pending_process,
-                                energy_ev=energy[order],
-                                sigma_m2=sigma[order],
-                            )
-                        )
-        i += 1
-
-    # Fallback: leading numeric table (implicit elastic).
-    if default_target:
-        has_elastic = any(proc.kind == "ELASTIC" and proc.target.lower() == default_target.lower() for proc in processes)
-        if not has_elastic:
-            i = 0
-            while i < len(lines) and lines[i].strip() == "":
-                i += 1
-            if i < len(lines):
-                parts = lines[i].strip().split()
-                if len(parts) >= 2:
-                    try:
-                        float(parts[0])
-                        float(parts[1])
-                        energy, sigma, i = _parse_table(lines, i)
-                        if energy.size:
-                            order = np.argsort(energy)
-                            processes.append(
-                                CrossSectionProcess(
-                                    kind="ELASTIC",
-                                    target=default_target,
-                                    label=f"{default_target} (implicit elastic)",
-                                    energy_ev=energy[order],
-                                    sigma_m2=sigma[order],
-                                )
-                            )
-                    except ValueError:
-                        pass
-    return processes
+def load_lxcat_text(
+    path: Path | str,
+    default_target: str | None = None,
+    *,
+    strict: bool = False,
+) -> list[CrossSectionProcess]:
+    del default_target
+    return parse_cross_section_file(path, strict=strict)
 
 
 def _select_processes(
     processes: Iterable[CrossSectionProcess],
     kinds: set[str],
     target: str,
+    *,
+    electron: bool,
 ) -> list[CrossSectionProcess]:
-    target_lower = target.strip().lower()
-    return [
-        proc
-        for proc in processes
-        if proc.kind in kinds and proc.target.strip().lower() == target_lower
+    target_key = target.strip().casefold()
+    selected: list[CrossSectionProcess] = []
+    for process in processes:
+        if process.process_type not in kinds:
+            continue
+        if process.target_particle.strip().casefold() != target_key:
+            continue
+        if _is_electron(process.incident_particle) != electron:
+            continue
+        selected.append(process)
+    return selected
+
+
+def _select_ion_processes(
+    processes: Iterable[CrossSectionProcess],
+    kinds: set[str],
+    target: str,
+    *,
+    ion_species: str | None,
+    strict: bool,
+) -> list[CrossSectionProcess]:
+    candidates = _select_processes(
+        processes,
+        kinds,
+        target,
+        electron=False,
+    )
+    if ion_species is None and not strict:
+        return candidates
+    expected = _canonical_species(
+        ion_species if ion_species is not None else f"{target}+"
+    )
+    selected = [
+        process
+        for process in candidates
+        if _canonical_species(process.incident_particle) == expected
     ]
+    if strict and len(selected) != len(candidates):
+        actual = sorted(
+            {
+                process.incident_particle.strip()
+                for process in candidates
+                if _canonical_species(process.incident_particle) != expected
+            }
+        )
+        raise ValueError(
+            "An ion cross section has an unexpected incident species: "
+            + ", ".join(actual)
+            + "."
+        )
+    return selected
 
 
-def _sum_processes(processes: list[CrossSectionProcess]) -> tuple[np.ndarray, np.ndarray]:
-    energies = np.unique(np.concatenate([p.energy_ev for p in processes]))
+def _sum_processes(
+    processes: list[CrossSectionProcess],
+) -> tuple[np.ndarray, np.ndarray]:
+    energies = np.unique(
+        np.concatenate([process.energy_ev for process in processes])
+    )
     total = np.zeros_like(energies)
-    for proc in processes:
-        total += np.interp(energies, proc.energy_ev, proc.sigma_m2, left=0.0, right=proc.sigma_m2[-1])
+    for process in processes:
+        total += np.interp(
+            energies,
+            process.energy_ev,
+            process.sigma_m2,
+            left=0.0,
+            right=0.0,
+        )
     return energies, total
+
+
+def _validate_uniform_request(e_max: float, n_bins: int) -> None:
+    if e_max <= 0.0:
+        raise ValueError("The maximum energy must be positive.")
+    if n_bins < 2:
+        raise ValueError("The cross-section table needs two or more bins.")
 
 
 def _build_uniform_table(
@@ -281,11 +284,307 @@ def _build_uniform_table(
     e_max: float,
     n_bins: int,
 ) -> tuple[float, float, np.ndarray]:
+    _validate_uniform_request(e_max, n_bins)
+    if energy_ev.size == 0 or sigma_m2.size == 0:
+        raise ValueError("The cross-section table has no values.")
+    if energy_ev.shape != sigma_m2.shape:
+        raise ValueError("The energy and cross-section arrays have different shapes.")
+    if not np.all(np.isfinite(energy_ev)) or not np.all(np.isfinite(sigma_m2)):
+        raise ValueError("The cross-section table has a nonfinite value.")
+    if np.any(energy_ev < 0.0) or np.any(sigma_m2 < 0.0):
+        raise ValueError("The cross-section table has a negative value.")
+    if energy_ev.size > 1 and np.any(np.diff(energy_ev) <= 0.0):
+        raise ValueError("Energy values do not increase.")
+
     e_min = 0.0
     grid = np.linspace(e_min, e_max, n_bins)
-    sigma = np.interp(grid, energy_ev, sigma_m2, left=sigma_m2[0], right=sigma_m2[-1])
-    inv_de = (n_bins - 1) / (e_max - e_min) if e_max > e_min else 1.0
+    sigma = np.interp(
+        grid,
+        energy_ev,
+        sigma_m2,
+        left=0.0,
+        right=0.0,
+    )
+    inv_de = (n_bins - 1) / (e_max - e_min)
     return e_min, inv_de, sigma
+
+
+def _validate_confirmed_mapping(
+    processes: Iterable[CrossSectionProcess],
+    *,
+    strict: bool,
+) -> None:
+    if not strict:
+        return
+    for process in processes:
+        if not process.mapping_confirmed:
+            raise ValueError(
+                f"The mapping for {process.process_type} is not confirmed."
+            )
+
+
+def _validate_single_elastic_candidate(
+    processes: list[CrossSectionProcess],
+    particle: str,
+    *,
+    strict: bool,
+) -> None:
+    if strict and len(processes) > 1:
+        raise ValueError(
+            f"The strict {particle} loader has {len(processes)} elastic candidates; "
+            "only one is permitted."
+        )
+
+
+def _validate_energy_coverage(
+    processes: Iterable[CrossSectionProcess],
+    e_max: float,
+    *,
+    strict: bool,
+) -> None:
+    if not strict:
+        return
+    for process in processes:
+        source_max = float(process.energy_ev[-1])
+        tolerance = 64.0 * np.finfo(np.float64).eps * max(
+            1.0,
+            abs(source_max),
+            abs(e_max),
+        )
+        if source_max + tolerance < e_max:
+            raise ValueError(
+                f"The {process.process_type} cross section ends at "
+                f"{source_max:g} eV, below the requested {e_max:g} eV."
+            )
+
+
+def _process_threshold(
+    process: CrossSectionProcess,
+    *,
+    strict: bool,
+) -> float:
+    named_values = (
+        ("threshold", process.threshold_ev),
+        ("energy loss", process.energy_loss_ev),
+    )
+    finite_values: list[float] = []
+    for name, raw_value in named_values:
+        if raw_value is None:
+            continue
+        value = float(raw_value)
+        if not np.isfinite(value):
+            if strict:
+                raise ValueError(
+                    f"The {process.process_type} {name} is not finite."
+                )
+            continue
+        if value < 0.0:
+            raise ValueError(
+                f"The {process.process_type} {name} is negative."
+            )
+        finite_values.append(value)
+
+    if not finite_values:
+        if strict:
+            raise ValueError(
+                f"The {process.process_type} process has no finite threshold."
+            )
+        return 0.0
+    if (
+        strict
+        and len(finite_values) == 2
+        and not np.isclose(
+            finite_values[0],
+            finite_values[1],
+            rtol=1.0e-12,
+            atol=1.0e-12,
+        )
+    ):
+        raise ValueError(
+            f"The {process.process_type} threshold and energy loss do not agree."
+        )
+    return finite_values[0]
+
+
+def _electron_product_count(token: str) -> int:
+    value = token.strip().casefold()
+    if value in {"e", "e-", "electron"}:
+        return 1
+    match = re.fullmatch(r"(\d+)\s*(?:e|e-|electrons?)", value)
+    if match is None:
+        return 0
+    return int(match.group(1))
+
+
+def _has_unsupported_ionization_products(process: CrossSectionProcess) -> bool:
+    if "->" not in process.label:
+        return False
+    products_text = process.label.split("->", 1)[1].split(",", 1)[0]
+    product_tokens = re.split(r"\s+\+\s+", products_text.strip())
+    electron_count = sum(
+        _electron_product_count(token) for token in product_tokens
+    )
+    positive_ion_count = 0
+    for token in product_tokens:
+        value = token.strip().replace(" ", "")
+        if _electron_product_count(token):
+            continue
+        if "++" in value or re.search(r"\^(?:\{)?[2-9]\d*\+", value):
+            return True
+        if value.endswith("+"):
+            positive_ion_count += 1
+    return electron_count > 2 or positive_ion_count > 1
+
+
+def _build_channel_tables(
+    processes: list[CrossSectionProcess],
+    e_max: float,
+    n_bins: int,
+    *,
+    strict: bool,
+    reject_multiple_products: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    thresholds: list[float] = []
+    channel_tables: list[np.ndarray] = []
+    grid = np.linspace(0.0, e_max, n_bins)
+    _validate_confirmed_mapping(processes, strict=strict)
+    for process in processes:
+        if (
+            strict
+            and reject_multiple_products
+            and _has_unsupported_ionization_products(process)
+        ):
+            raise ValueError(
+                "The ionization process has multiple products that the "
+                "collision model cannot represent."
+            )
+        threshold = _process_threshold(process, strict=strict)
+        _, _, table = _build_uniform_table(
+            process.energy_ev,
+            process.sigma_m2,
+            e_max,
+            n_bins,
+        )
+        table[grid < threshold] = 0.0
+        thresholds.append(threshold)
+        channel_tables.append(table)
+
+    if channel_tables:
+        channels = np.asarray(channel_tables, dtype=np.float64)
+        total = np.sum(channels, axis=0, dtype=np.float64)
+    else:
+        channels = np.empty((0, n_bins), dtype=np.float64)
+        total = np.zeros(n_bins, dtype=np.float64)
+    return np.asarray(thresholds, dtype=np.float64), channels, total
+
+
+def _build_electron_tables(
+    processes: list[CrossSectionProcess],
+    target: str,
+    e_max: float,
+    n_bins: int,
+    *,
+    strict: bool,
+) -> ElectronXSections:
+    elastic_processes = _select_processes(
+        processes,
+        {"ELASTIC"},
+        target,
+        electron=True,
+    )
+    effective_processes = _select_processes(
+        processes,
+        {"EFFECTIVE"},
+        target,
+        electron=True,
+    )
+    _validate_single_elastic_candidate(
+        elastic_processes + effective_processes,
+        "electron",
+        strict=strict,
+    )
+    effective = effective_processes if not elastic_processes else []
+    elastic = elastic_processes if elastic_processes else effective_processes
+    if not elastic:
+        raise ValueError("No electron elastic cross section is available for the target.")
+    _validate_confirmed_mapping(elastic, strict=strict)
+    _validate_energy_coverage(elastic[:1], e_max, strict=strict)
+    elastic_energy, elastic_sigma = _sum_processes(elastic[:1])
+
+    excitation = _select_processes(
+        processes,
+        {"EXCITATION"},
+        target,
+        electron=True,
+    )
+    if strict and not excitation:
+        raise ValueError("No electron excitation process is available for the target.")
+    (
+        excitation_thresholds_ev,
+        excitation_channel_tables,
+        sigma_excitation,
+    ) = _build_channel_tables(
+        excitation,
+        e_max,
+        n_bins,
+        strict=strict,
+        reject_multiple_products=False,
+    )
+    _validate_energy_coverage(excitation, e_max, strict=strict)
+
+    ionization = _select_processes(
+        processes,
+        {"IONIZATION"},
+        target,
+        electron=True,
+    )
+    if strict and not ionization:
+        raise ValueError("No electron ionization process is available for the target.")
+    (
+        ionization_thresholds_ev,
+        ionization_channel_tables,
+        sigma_ionization,
+    ) = _build_channel_tables(
+        ionization,
+        e_max,
+        n_bins,
+        strict=strict,
+        reject_multiple_products=True,
+    )
+    _validate_energy_coverage(ionization, e_max, strict=strict)
+
+    e_min, inv_de, sigma_elastic = _build_uniform_table(
+        elastic_energy,
+        elastic_sigma,
+        e_max,
+        n_bins,
+    )
+    if effective:
+        inelastic = sigma_excitation + sigma_ionization
+        sigma_elastic = sigma_elastic - inelastic
+        scale = max(
+            float(np.max(np.abs(elastic_sigma))),
+            float(np.max(np.abs(inelastic))),
+            np.finfo(np.float64).tiny,
+        )
+        tolerance = 1.0e-10 * scale
+        if float(np.min(sigma_elastic)) < -tolerance:
+            raise ValueError(
+                "The EFFECTIVE cross section is smaller than the summed "
+                "inelastic cross sections."
+            )
+        sigma_elastic = np.maximum(sigma_elastic, 0.0)
+    return ElectronXSections(
+        e_min=e_min,
+        inv_de=inv_de,
+        sigma_elastic=sigma_elastic,
+        sigma_excitation=sigma_excitation,
+        sigma_ionization=sigma_ionization,
+        excitation_thresholds_ev=excitation_thresholds_ev,
+        excitation_channel_tables=excitation_channel_tables,
+        ionization_thresholds_ev=ionization_thresholds_ev,
+        ionization_channel_tables=ionization_channel_tables,
+    )
 
 
 def build_electron_tables_from_lxcat(
@@ -293,34 +592,120 @@ def build_electron_tables_from_lxcat(
     target: str,
     e_max: float,
     n_bins: int,
+    *,
+    strict: bool = False,
 ) -> ElectronXSections:
-    processes = load_lxcat_text(path, default_target=target)
+    processes = load_lxcat_text(path, default_target=target, strict=strict)
+    return _build_electron_tables(
+        processes,
+        target,
+        e_max,
+        n_bins,
+        strict=strict,
+    )
 
-    elastic = _select_processes(processes, {"ELASTIC"}, target)
-    if not elastic:
-        elastic = _select_processes(processes, {"EFFECTIVE"}, target)
-    if not elastic:
-        raise ValueError("No ELASTIC/EFFECTIVE cross section found for target.")
-    elastic_energy, elastic_sigma = _sum_processes(elastic[:1])
 
-    excitation = _select_processes(processes, {"EXCITATION"}, target)
-    if excitation:
-        exc_energy, exc_sigma = _sum_processes(excitation)
+def _build_ion_tables(
+    processes: list[CrossSectionProcess],
+    target: str,
+    e_max: float,
+    n_bins: int,
+    *,
+    fallback_cex: float | None,
+    strict: bool,
+    confirm_symmetric_backscatter_as_cex: bool,
+    ion_species: str | None,
+) -> IonXSections:
+    if fallback_cex is not None and fallback_cex < 0.0:
+        raise ValueError("The fallback cross section is negative.")
+
+    charge_exchange = _select_ion_processes(
+        processes,
+        {"CHARGE EXCHANGE"},
+        target,
+        ion_species=ion_species,
+        strict=strict,
+    )
+    backscatter = _select_ion_processes(
+        processes,
+        {"BACKSCATTER"},
+        target,
+        ion_species=ion_species,
+        strict=strict,
+    )
+    if charge_exchange:
+        _validate_confirmed_mapping(charge_exchange, strict=strict)
+        _validate_energy_coverage(charge_exchange, e_max, strict=strict)
+        cex_energy, cex_sigma = _sum_processes(charge_exchange)
+    elif backscatter and confirm_symmetric_backscatter_as_cex:
+        expected_ion = _canonical_species(
+            ion_species if ion_species is not None else f"{target}+"
+        )
+        expected_parent_ion = _canonical_species(f"{target}+")
+        if expected_ion != expected_parent_ion:
+            raise ValueError(
+                "Backscatter can be mapped to charge exchange only for "
+                "a singly charged ion and its parent neutral."
+            )
+        _validate_energy_coverage(backscatter, e_max, strict=strict)
+        cex_energy, cex_sigma = _sum_processes(backscatter)
+    elif backscatter and strict:
+        raise ValueError(
+            "BACKSCATTER is not a confirmed CHARGE EXCHANGE process."
+        )
+    elif strict:
+        raise ValueError(
+            "No confirmed ion charge-exchange process is available for the target."
+        )
+    elif fallback_cex is not None and fallback_cex > 0.0:
+        cex_energy = np.array([0.0, e_max], dtype=float)
+        cex_sigma = np.array([fallback_cex, fallback_cex], dtype=float)
     else:
-        exc_energy = elastic_energy
-        exc_sigma = np.zeros_like(elastic_energy)
+        cex_energy = np.array([0.0, e_max], dtype=float)
+        cex_sigma = np.zeros(2, dtype=float)
 
-    ionization = _select_processes(processes, {"IONIZATION"}, target)
-    if ionization:
-        ion_energy, ion_sigma = _sum_processes(ionization)
+    elastic = _select_ion_processes(
+        processes,
+        {"ELASTIC", "EFFECTIVE", "ISOTROPIC"},
+        target,
+        ion_species=ion_species,
+        strict=strict,
+    )
+    _validate_single_elastic_candidate(
+        elastic,
+        "ion",
+        strict=strict,
+    )
+    if elastic:
+        _validate_confirmed_mapping(elastic[:1], strict=strict)
+        _validate_energy_coverage(elastic[:1], e_max, strict=strict)
+        elastic_energy, elastic_sigma = _sum_processes(elastic[:1])
+    elif strict:
+        raise ValueError(
+            "No confirmed ion elastic or isotropic process is available for the target."
+        )
     else:
-        ion_energy = elastic_energy
-        ion_sigma = np.zeros_like(elastic_energy)
+        elastic_energy = np.array([0.0, e_max], dtype=float)
+        elastic_sigma = np.zeros(2, dtype=float)
 
-    e_min, inv_de, sigma_el = _build_uniform_table(elastic_energy, elastic_sigma, e_max, n_bins)
-    _, _, sigma_exc = _build_uniform_table(exc_energy, exc_sigma, e_max, n_bins)
-    _, _, sigma_ion = _build_uniform_table(ion_energy, ion_sigma, e_max, n_bins)
-    return ElectronXSections(e_min=e_min, inv_de=inv_de, sigma_elastic=sigma_el, sigma_excitation=sigma_exc, sigma_ionization=sigma_ion)
+    e_min, inv_de, sigma_cex = _build_uniform_table(
+        cex_energy,
+        cex_sigma,
+        e_max,
+        n_bins,
+    )
+    _, _, sigma_elastic = _build_uniform_table(
+        elastic_energy,
+        elastic_sigma,
+        e_max,
+        n_bins,
+    )
+    return IonXSections(
+        e_min=e_min,
+        inv_de=inv_de,
+        sigma_cex=sigma_cex,
+        sigma_elastic=sigma_elastic,
+    )
 
 
 def build_ion_tables_from_lxcat(
@@ -329,31 +714,24 @@ def build_ion_tables_from_lxcat(
     e_max: float,
     n_bins: int,
     fallback_cex: float | None = None,
+    *,
+    strict: bool = False,
+    confirm_symmetric_backscatter_as_cex: bool = False,
+    ion_species: str | None = None,
 ) -> IonXSections:
-    processes = load_lxcat_text(path, default_target=target)
-
-    cex = _select_processes(processes, {"CHARGE EXCHANGE", "CHARGE-EXCHANGE"}, target)
-    if not cex:
-        cex = [p for p in processes if "CHARGE" in p.kind and p.target.strip().lower() == target.lower()]
-    if cex:
-        cex_energy, cex_sigma = _sum_processes(cex)
-    elif fallback_cex and fallback_cex > 0.0:
-        cex_energy = np.array([0.0, e_max], dtype=float)
-        cex_sigma = np.array([fallback_cex, fallback_cex], dtype=float)
-    else:
-        cex_energy = np.array([0.0, e_max], dtype=float)
-        cex_sigma = np.zeros(2, dtype=float)
-
-    elastic = _select_processes(processes, {"ELASTIC", "EFFECTIVE"}, target)
-    if elastic:
-        el_energy, el_sigma = _sum_processes(elastic[:1])
-    else:
-        el_energy = np.array([0.0, e_max], dtype=float)
-        el_sigma = np.zeros(2, dtype=float)
-
-    e_min, inv_de, sigma_cex = _build_uniform_table(cex_energy, cex_sigma, e_max, n_bins)
-    _, _, sigma_el = _build_uniform_table(el_energy, el_sigma, e_max, n_bins)
-    return IonXSections(e_min=e_min, inv_de=inv_de, sigma_cex=sigma_cex, sigma_elastic=sigma_el)
+    processes = load_lxcat_text(path, default_target=target, strict=strict)
+    return _build_ion_tables(
+        processes,
+        target,
+        e_max,
+        n_bins,
+        fallback_cex=fallback_cex,
+        strict=strict,
+        confirm_symmetric_backscatter_as_cex=(
+            confirm_symmetric_backscatter_as_cex
+        ),
+        ion_species=ion_species,
+    )
 
 
 def build_constant_electron_tables(
@@ -362,13 +740,42 @@ def build_constant_electron_tables(
     sigma_ion: float,
     e_max: float,
     n_bins: int,
+    *,
+    excitation_threshold_ev: float = 0.0,
+    ionization_threshold_ev: float = 0.0,
 ) -> ElectronXSections:
+    if min(sigma_el, sigma_exc, sigma_ion) < 0.0:
+        raise ValueError("A constant electron cross section is negative.")
+    if not np.isfinite(excitation_threshold_ev) or excitation_threshold_ev < 0.0:
+        raise ValueError("The excitation threshold is invalid.")
+    if not np.isfinite(ionization_threshold_ev) or ionization_threshold_ev < 0.0:
+        raise ValueError("The ionization threshold is invalid.")
+    _validate_uniform_request(e_max, n_bins)
     e_min = 0.0
-    inv_de = (n_bins - 1) / (e_max - e_min) if e_max > e_min else 1.0
+    inv_de = (n_bins - 1) / (e_max - e_min)
+    grid = np.linspace(e_min, e_max, n_bins)
     sigma_elastic = np.full(n_bins, sigma_el, dtype=float)
     sigma_excitation = np.full(n_bins, sigma_exc, dtype=float)
     sigma_ionization = np.full(n_bins, sigma_ion, dtype=float)
-    return ElectronXSections(e_min=e_min, inv_de=inv_de, sigma_elastic=sigma_elastic, sigma_excitation=sigma_excitation, sigma_ionization=sigma_ionization)
+    sigma_excitation[grid < excitation_threshold_ev] = 0.0
+    sigma_ionization[grid < ionization_threshold_ev] = 0.0
+    return ElectronXSections(
+        e_min=e_min,
+        inv_de=inv_de,
+        sigma_elastic=sigma_elastic,
+        sigma_excitation=sigma_excitation,
+        sigma_ionization=sigma_ionization,
+        excitation_thresholds_ev=np.array(
+            [excitation_threshold_ev],
+            dtype=np.float64,
+        ),
+        excitation_channel_tables=sigma_excitation[np.newaxis, :],
+        ionization_thresholds_ev=np.array(
+            [ionization_threshold_ev],
+            dtype=np.float64,
+        ),
+        ionization_channel_tables=sigma_ionization[np.newaxis, :],
+    )
 
 
 def build_constant_ion_tables(
@@ -377,79 +784,65 @@ def build_constant_ion_tables(
     e_max: float,
     n_bins: int,
 ) -> IonXSections:
+    if min(sigma_cex, sigma_elastic) < 0.0:
+        raise ValueError("A constant ion cross section is negative.")
+    _validate_uniform_request(e_max, n_bins)
     e_min = 0.0
-    inv_de = (n_bins - 1) / (e_max - e_min) if e_max > e_min else 1.0
-    sigma_cex_arr = np.full(n_bins, sigma_cex, dtype=float)
-    sigma_el_arr = np.full(n_bins, sigma_elastic, dtype=float)
-    return IonXSections(e_min=e_min, inv_de=inv_de, sigma_cex=sigma_cex_arr, sigma_elastic=sigma_el_arr)
+    inv_de = (n_bins - 1) / (e_max - e_min)
+    sigma_cex_array = np.full(n_bins, sigma_cex, dtype=float)
+    sigma_elastic_array = np.full(n_bins, sigma_elastic, dtype=float)
+    return IonXSections(
+        e_min=e_min,
+        inv_de=inv_de,
+        sigma_cex=sigma_cex_array,
+        sigma_elastic=sigma_elastic_array,
+    )
+
 
 def load_cross_sections_from_custom_file(
     path: Path | str,
     e_max: float,
     n_bins: int,
+    *,
+    target: str = "Ar",
+    strict: bool = False,
+    ion_e_max: float | None = None,
+    ion_n_bins: int | None = None,
+    confirm_symmetric_backscatter_as_cex: bool = False,
+    ion_species: str | None = None,
 ) -> tuple[ElectronXSections, IonXSections]:
-    """
-    Load cross sections from a custom CS.txt file.
-    
-    Returns:
-        (ElectronXSections, IonXSections)
-    """
-    sections = parse_cs_txt(path)
-    
-    # --- Build Electron Tables ---
-    # Elastic
-    if "electron_elastic" in sections:
-        data = sections["electron_elastic"]
-        e_el, s_el = data.energy, data.sigma
-    else:
-        # Fallback to zero if missing (unlikely if parser works)
-        e_el, s_el = np.array([0.0, e_max]), np.zeros(2)
-
-    # Excitation (Assume zero if not present, CS.txt doesn't seem to have it?)
-    # If CS.txt has excitation, the parser needs to find it. 
-    # Current parser maps "IONIZATION" and "Backscat", everything else is elastic?
-    # Actually current parser only finds 3 blocks.
-    e_exc, s_exc = np.array([0.0, e_max]), np.zeros(2)
-
-    # Ionization
-    if "electron_ionization" in sections:
-        data = sections["electron_ionization"]
-        e_ion, s_ion = data.energy, data.sigma
-    else:
-        e_ion, s_ion = np.array([0.0, e_max]), np.zeros(2)
-        
-    e_min, inv_de, sigma_el_arr = _build_uniform_table(e_el, s_el, e_max, n_bins)
-    _, _, sigma_exc_arr = _build_uniform_table(e_exc, s_exc, e_max, n_bins)
-    _, _, sigma_ion_arr = _build_uniform_table(e_ion, s_ion, e_max, n_bins)
-    
-    electron_xs = ElectronXSections(
-        e_min=e_min, 
-        inv_de=inv_de, 
-        sigma_elastic=sigma_el_arr, 
-        sigma_excitation=sigma_exc_arr, 
-        sigma_ionization=sigma_ion_arr
+    processes = load_lxcat_text(path, default_target=target, strict=strict)
+    electron_tables = _build_electron_tables(
+        processes,
+        target,
+        e_max,
+        n_bins,
+        strict=strict,
     )
-
-    # --- Build Ion Tables ---
-    # CEX
-    if "ion_cex" in sections:
-        data = sections["ion_cex"]
-        e_cex, s_cex = data.energy, data.sigma
-    else:
-        e_cex, s_cex = np.array([0.0, e_max]), np.zeros(2)
-        
-    # Elastic (Ion) - Not explicitly in CS.txt, assume zero or included in CEX?
-    # CS.txt has "Ar+ + Ar -> , Backscat", which is predominantly CEX/Backscatter.
-    e_iel, s_iel = np.array([0.0, e_max]), np.zeros(2)
-    
-    e_min_i, inv_de_i, sigma_cex_arr = _build_uniform_table(e_cex, s_cex, e_max, n_bins)
-    _, _, sigma_iel_arr = _build_uniform_table(e_iel, s_iel, e_max, n_bins)
-    
-    ion_xs = IonXSections(
-        e_min=e_min_i,
-        inv_de=inv_de_i,
-        sigma_cex=sigma_cex_arr,
-        sigma_elastic=sigma_iel_arr
+    ion_tables = _build_ion_tables(
+        processes,
+        target,
+        e_max if ion_e_max is None else ion_e_max,
+        n_bins if ion_n_bins is None else ion_n_bins,
+        fallback_cex=None,
+        strict=strict,
+        confirm_symmetric_backscatter_as_cex=(
+            confirm_symmetric_backscatter_as_cex
+        ),
+        ion_species=ion_species,
     )
-    
-    return electron_xs, ion_xs
+    return electron_tables, ion_tables
+
+
+__all__ = [
+    "CrossSectionProcess",
+    "ElectronXSections",
+    "IonXSections",
+    "build_constant_electron_tables",
+    "build_constant_ion_tables",
+    "build_electron_tables_from_lxcat",
+    "build_ion_tables_from_lxcat",
+    "load_cross_sections_from_custom_file",
+    "load_lxcat_text",
+    "parse_cs_txt",
+]

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "artifact_type": "cenian2005_current_code_replay",
+  "quality_status": "PREVIEW",
+  "release_decision": "REPRESENTATIVE_POINT_REPRODUCED_EXPERIMENT_MISMATCH_REMAINS",
+  "source_commit": "45ead2eeed989a43a3dc6ae2a823507f8eb19a1e",
+  "physics_model_version": "3",
+  "files": {
+    "simulation_points.csv": "b7a4a832655d1ebd7d735b71995cbcb547572e8d57a039dfad29b190f0f92190",
+    "comparison.csv": "470391663116d0ef0b186aa9fbd47b9b2e1c3ea1bfc241a3f8c786bcc6338c0c",
+    "metrics.json": "241bce8af05b7ec8d13850e490129f2be083ec8c03afa258c653c48f0fb1b5c1",
+    "manifest.json": "98a1f1031afa1d71039730907cde697059695eecb25bfe1fabcfaa58bc483991",
+    "README.md": "f0cf0804dc5fcf89cb465f2179391762da948006bbb7aaa05cccf111296de6b1"
+  },
+  "replay_check": {
+    "voltage_V": -30.0,
+    "seed": 20260814,
+    "baseline_current_A": -2.3989006484366297e-05,
+    "replay_current_A": -2.3989006484366297e-05,
+    "current_difference_A": 0.0,
+    "baseline_current_sem_A": 2.3000623334209972e-06,
+    "replay_current_sem_A": 2.3000623334209972e-06,
+    "current_sem_difference_A": 0.0,
+    "sample_count_exact_match": true,
+    "batch_mean_count_exact_match": true,
+    "numerical_status_exact_match": true
+  },
+  "statement": "This one-point replay binds a representative baseline result to the clean current-code commit. It does not establish steady state, numerical convergence, or experimental validation."
+}

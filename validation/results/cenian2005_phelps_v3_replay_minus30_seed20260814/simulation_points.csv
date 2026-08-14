@@ -1,0 +1,2 @@
+voltage_V,seed,source_aligned_current_A,current_sem_A,sample_steps,warmup_steps,sample_count,batch_mean_count,numerical_status,simulation_manifest_sha256
+-30.0,20260814,-2.3989006484366297e-05,2.3000623334209972e-06,31708,31708,31708,178,PASS,5845d13248562cd1a76b1c2c5c960c890f657a48b559076d9952d96d3f976e91

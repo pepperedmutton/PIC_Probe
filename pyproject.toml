@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pic-probe-simulation"
+version = "0.2.1.dev0"
+description = "Research-preview PIC-MCC simulation for a cylindrical plasma probe"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "numba>=0.61",
+  "numpy>=1.24",
+  "pandas>=2,<3",
+  "pyarrow>=15",
+]
+
+[project.optional-dependencies]
+ui = [
+  "matplotlib>=3.8",
+  "streamlit>=1.40",
+]
+test = [
+  "build>=1.2",
+  "matplotlib>=3.8",
+  "pytest>=8,<9",
+  "pytest-cov>=5",
+  "streamlit>=1.40",
+]
+
+[project.scripts]
+picsimu-benchmarks = "benchmarks:main"
+picsimu-preview-study = "run_physics_accurate:main"
+picsimu-validate-cenian = "validation.run_cenian2005:main"
+
+[tool.setuptools]
+py-modules = ["benchmarks", "run_physics_accurate"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "frontend*", "validation*"]
+
+[tool.setuptools.package-data]
+validation = [
+  "CENIAN2005.md",
+  "cross_sections/*.json",
+  "cross_sections/*.md",
+  "experimental/*.csv",
+  "experimental/*.json",
+  "experimental/*.md",
+  "results/*/*.csv",
+  "results/*/*.json",
+  "results/*/*.md",
+  "results/*/*.png",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["core"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[test]"
+      - name: Run tests
+        run: python -m pytest
+      - name: Run fast benchmarks
+        run: python benchmarks.py
+      - name: Build wheel and source package
+        run: python -m build --sdist --wheel
+      - name: Install wheel in a clean environment
+        shell: pwsh
+        run: |
+          python -m venv wheel-smoke
+          $wheel = @(Get-ChildItem -LiteralPath dist -Filter '*.whl')
+          if ($wheel.Count -ne 1) {
+            throw "Expected one wheel, found $($wheel.Count)."
+          }
+          if ($IsWindows) {
+            $scripts = Join-Path $PWD 'wheel-smoke/Scripts'
+            $executableSuffix = '.exe'
+          } else {
+            $scripts = Join-Path $PWD 'wheel-smoke/bin'
+            $executableSuffix = ''
+          }
+          $venvPython = Join-Path $scripts "python$executableSuffix"
+          & $venvPython -m pip install --disable-pip-version-check $wheel[0].FullName
+          & $venvPython -m pip check
+          $smokeDirectory = Join-Path $PWD 'wheel-smoke/run'
+          New-Item -ItemType Directory -Path $smokeDirectory | Out-Null
+          Push-Location $smokeDirectory
+          try {
+            & (Join-Path $scripts "picsimu-benchmarks$executableSuffix")
+            & (Join-Path $scripts "picsimu-preview-study$executableSuffix") --plan-only --points 3 --repeats 1
+            & (Join-Path $scripts "picsimu-validate-cenian$executableSuffix") --help
+            & $venvPython -c "from importlib.resources import files; assert files('validation').joinpath('experimental/cenian2005_fig2_case_rp_lambda_0p26.csv').is_file()"
+            & $venvPython -c "from importlib.resources import files; root=files('validation'); assert root.joinpath('results/cenian2005_phelps_pilot_12mm_64c_1024p_3seed/README.md').is_file(); assert root.joinpath('results/cenian2005_phelps_pilot_12mm_64c_1024p_3seed/comparison_plot.png').is_file()"
+          } finally {
+            Pop-Location
+          }
