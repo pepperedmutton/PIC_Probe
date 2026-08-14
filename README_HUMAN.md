@@ -83,6 +83,8 @@
 
 [三点敏感性筛选](validation/results/cenian2005_sensitivity_screen/README.md)表明：20 mm 外域和 0.10 个离子渡越时间预热都会改变结果，但都不能统一消除接近 1.9 倍的幅值。不要使用经验比例因子修正。
 
+[当前代码代表点重放](validation/results/cenian2005_phelps_v3_replay_minus30_seed20260814/README.md)把 `-30 V`、种子 20260814 绑定到干净提交 `45ead2e` 和物理模型 v3。电流、标准误、样本数及状态与主对比对应行逐值相同；实验偏差仍然存在。
+
 ## 电流怎样解释
 
 程序使用：

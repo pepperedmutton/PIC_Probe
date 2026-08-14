@@ -84,6 +84,7 @@ The clean numerical audit means that the code completed the selected short pilot
 - The experiment curve has one digitization and no reported point-by-point system uncertainty.
 - The paper cites a 1997 Phelps electron table. The 2026 LXCat retrieval has not been shown to be numerically identical.
 - This run started before the runner added Git commit and dirty-tree records. Its manifest therefore has `source_commit=null`. The exact run-start experiment provenance is preserved as `input_provenance_at_run.json`, whose hash matches the result manifest.
+- A [clean physics-model v3 replay](../cenian2005_phelps_v3_replay_minus30_seed20260814/README.md) reproduces the `-30 V`, seed 20260814 current, internal standard error, sample count, batch count, and numerical status exactly. This representative check does not replace a full rerun.
 
 ## Files
 
