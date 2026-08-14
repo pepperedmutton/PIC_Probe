@@ -1,0 +1,265 @@
+{
+  "absolute_current_no_scaling": true,
+  "artifact_type": "cenian2005_external_validation_result",
+  "created_utc": "2026-08-14T09:39:11Z",
+  "manifest_sha256": "7b808bdf3dac5541bf25c455411542def1f6a8694a63db068a9dc77d0ec3c1de",
+  "metrics": {
+    "absolute_current_no_scaling": true,
+    "experimental_point_count": 3,
+    "fraction_within_combined_2sigma": 0.0,
+    "maximum_absolute_error_A": 1.2775800042306467e-05,
+    "mean_absolute_error_A": 9.613484975578142e-06,
+    "mean_absolute_relative_error": 0.9859909648872504,
+    "mean_bias_A": -9.613484975578142e-06,
+    "normalized_root_mean_square_error": 0.7533296800431328,
+    "points_within_combined_2sigma": 0,
+    "quality_status": "PREVIEW",
+    "release_decision": "NOT_EVALUATED_RESEARCH_PREVIEW",
+    "root_mean_square_error_A": 9.906409414550566e-06,
+    "root_mean_square_z_score": 3.988016273999005,
+    "seed_count": 1,
+    "signed_current_no_scaling": true,
+    "simulation_row_count": 3,
+    "uncertainty_statement": "The combined value includes digitization uncertainty and simulation standard error. It does not include full experimental system uncertainty."
+  },
+  "outputs": {
+    "comparison.csv": "a50694c9ddba659367afb198ebc220b6d94fd2d01143b1a6797b33edfb7e6240",
+    "metrics.json": "87d171bcb388d228f40563bb9ff0ba4c2d7d3a87a83e20d46f38c1610fb69edb",
+    "simulation_points.csv": "c1ebf0d2b97ece08d08bf7140dde42c51f38907e51235c885345e37db6cad470"
+  },
+  "plan": {
+    "absolute_current_no_scaling": true,
+    "artifact_type": "cenian2005_external_validation_plan",
+    "config": {
+      "CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX": true,
+      "COULOMB_LOG": 10.0,
+      "CROSS_SECTION_STRICT": true,
+      "CROSS_SECTION_TARGET": "Ar",
+      "DT": 3e-11,
+      "ENABLE_COULOMB_COLLISIONS": false,
+      "ENABLE_IONIZATION_SECONDARIES": true,
+      "ENABLE_ION_NEUTRAL_ELASTIC": true,
+      "EN_CS_E_MAX": 100.0,
+      "EN_CS_N": 2001,
+      "E_EXC_EV": 11.6,
+      "E_ION_EV": 15.8,
+      "ION_CHARGE_STATE": 1,
+      "ION_CS_E_MAX": 100.0,
+      "ION_CS_N": 2001,
+      "ION_INJECTION_BOHM": false,
+      "ION_SPECIES": "Ar+",
+      "LXCAT_ELECTRON_FILE": "electron_ar_phelps_20260814.txt",
+      "LXCAT_ION_FILE": "ion_ar_phelps_20260814.txt",
+      "N0": 71500000000000.0,
+      "NEUTRAL_SPECIES": "Ar",
+      "N_CELLS": 64,
+      "N_SMOOTHING_PASSES": 1,
+      "P_Torr": 0.0013,
+      "RUN_MODE": "research",
+      "R_MAX": 0.012,
+      "R_MIN": 0.000313,
+      "SIGMA_EN_ELASTIC": 4e-20,
+      "SIGMA_EN_EXC": 2e-20,
+      "SIGMA_EN_ION": 1e-20,
+      "SIGMA_IN_ELASTIC": 0.0,
+      "SMOOTH_DENSITY": false,
+      "T_GAS_K": 290.1,
+      "Te": 1.9,
+      "Ti": 0.025,
+      "V_WALL": 0.0,
+      "config_schema_version": 3,
+      "e": 1.602176634e-19,
+      "epsilon_0": 8.8541878128e-12,
+      "k_B": 1.380649e-23,
+      "m_e": 9.1093837015e-31,
+      "m_i": 6.6335209e-26,
+      "m_neutral": 6.6335209e-26,
+      "m_p": 1.67262192369e-27
+    },
+    "config_paths_redacted": true,
+    "config_sha256": "3af05ee1b4af87e74ffa6646a603f1c1202d8ce98d4c9df04cd2b1943ec10c60",
+    "created_utc": "2026-08-14T09:28:42Z",
+    "current_definition": "Use PICSimulation.avg_current: signed I_electron_magnitude - I_ion_magnitude in amperes for the 0.047 m probe. Do not use avg_conventional_current.",
+    "experiment": {
+      "boundary_mapping": "Maxwellian thermal plasma-bulk influx; ION_INJECTION_BOHM=False.",
+      "doi": "10.1063/1.1938275",
+      "figure": "Figure 2",
+      "geometry_mapping": "Infinite cylindrical model multiplied by the 0.047 m measured length; probe-end current is not modeled.",
+      "point_count": 3,
+      "probe_length_m": 0.047,
+      "probe_radius_m": 0.000313,
+      "probe_surface_mapping": "Fully absorbing probe surface.",
+      "voltage_reference": "plasma_potential",
+      "voltages_V": [
+        -50.0,
+        -30.0,
+        -10.0
+      ]
+    },
+    "input_files": {
+      "experimental_csv": {
+        "name": "cenian2005_fig2_case_rp_lambda_0p26.csv",
+        "sha256": "63f4f472a403fe6b3d5c8a0403746f67ff9beed4aa842dc47e9f000495c84728"
+      },
+      "experimental_manifest": {
+        "name": "dataset_manifest.json",
+        "sha256": "afa60060983afe5c3c2d834698eed1ceb425d52c46855a609c8e7f1abac9e661"
+      },
+      "experimental_provenance": {
+        "name": "cenian2005_fig2_case_rp_lambda_0p26.provenance.json",
+        "sha256": "c6299428ff372ef935d626e14b75ca2d522efb8ab83f46418373399c4937b279"
+      },
+      "lxcat_manifest": {
+        "name": "lxcat_manifest.json",
+        "sha256": "818918a5777b742ae8eda5a6c832e9977ddabf8489f5a58a7593ae1f9652bae1"
+      },
+      "lxcat_phelps_electron": {
+        "name": "electron_ar_phelps_20260814.txt",
+        "sha256": "4a3ee09a3a4dd10588c3d65ca631868553588426065ef0931e7c8c29a08b788f"
+      },
+      "lxcat_phelps_ion": {
+        "name": "ion_ar_phelps_20260814.txt",
+        "sha256": "7e0efe6690b7d5cff9687647bc0b1ff272c9bbe0d20da04e86208d99d2d07bc8"
+      }
+    },
+    "known_limits": [
+      "The experimental points came from one figure digitization that has not been independently reviewed.",
+      "The experimental density and temperature came from the same probe curve.",
+      "The pilot sample time is not a production acceptance time.",
+      "The model uses an infinite cylinder multiplied by the measured probe length.",
+      "The source reports significant finite-length effects above 50 V magnitude; this affects the -55 V and -60 V points.",
+      "The 0.012 m pilot domain is smaller than the source model domains, which reached about 0.067 m at -50 V.",
+      "The 2026 LXCat Phelps retrieval has not been shown to be numerically identical to the 1997 table used by the source.",
+      "The experiment does not give point-by-point system uncertainty."
+    ],
+    "numerical_checks": {
+      "accelerated_electron_cfl": 0.76660069043065,
+      "config_stability": {
+        "cell_size_m": 0.000182609375,
+        "cell_to_debye_ratio": 0.15068850437395864,
+        "debye_length_m": 0.0012118334823127874,
+        "debye_resolved": true,
+        "dt_omega_pe": 0.014310862420897357,
+        "electron_cfl": 0.0949698351599706,
+        "electron_cfl_resolved": true,
+        "electron_thermal_speed_m_s": 578079.4080805085,
+        "ion_cfl": 4.036931079395646e-05,
+        "ion_cfl_resolved": true,
+        "ion_thermal_speed_m_s": 245.72715377550477,
+        "is_stable": true,
+        "plasma_frequency_rad_s": 477028747.36324525,
+        "plasma_time_resolved": true
+      },
+      "ion_transit_time_s": 4.756088132887906e-05,
+      "sample_duration_s": 9.5124e-07,
+      "sample_ion_transit_multiples": 0.020000470416480808
+    },
+    "plan_sha256": "dae691ec1ac211d885a0d2fca6fd54f8da6d878d46345e2a53fa92a53f95139a",
+    "quality_statement": "This operation is a research preview. It does not give production release evidence.",
+    "quality_status": "PREVIEW",
+    "settings": {
+      "cells": 64,
+      "domain_radius_m": 0.012,
+      "dt_s": 3e-11,
+      "particles": 1024,
+      "sample_steps": 31708,
+      "seeds": [
+        20260814
+      ],
+      "warmup_steps": 158537
+    },
+    "signed_current_no_scaling": true,
+    "source_tree": {
+      "commit": "04771dea2d76cca2e4e8b2469618c16ac2eb4a17",
+      "dirty": true,
+      "status": "available",
+      "status_sha256": "27d7adde55405fafb69a55dd62ad0dd43b64fec2166b197d2255b893dd46d611"
+    }
+  },
+  "publication": {
+    "machine_local_paths_redacted": true,
+    "raw_manifest_sha256_before_redaction": "17c7c4e5639569d80df929217dba5c953e925f36d8a513872f8e77ac9952aa8e",
+    "runtime_config_sha256_preserved": true,
+    "statement": "Only machine-local path strings were replaced with file names. Runtime configuration, state, input, and output hashes remain."
+  },
+  "quality_statement": "These results are a research preview. They are not a production validation certificate.",
+  "quality_status": "PREVIEW",
+  "run_trace": [
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "09fbaf4b46b615ae791f086781241537bec8d73071a403651261899cfb5a5555",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "9a331289764d51c7b1065af5115f481d0c9a58db100fb45793c2767c865e81d4",
+      "voltage_V": -50.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "01ad58c58843e56cd312b84eb4a815ae2fa2d259cf6b090d512813ae5f7eb2b3",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "e5b63f97ba3f5a0a795af1d853a77df2ca757d45d3a6ea2ff57165cb959ac078",
+      "voltage_V": -30.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "abcb53950008ba6a138a77d98174164f8d656c49bf623364e0241526f1e2a3d0",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "fab070bc93d5053d15eaba792b21baffeeb9435939166053b00d0d49ee45612b",
+      "voltage_V": -10.0
+    }
+  ],
+  "signed_current_no_scaling": true,
+  "source_tree": {
+    "commit": "04771dea2d76cca2e4e8b2469618c16ac2eb4a17",
+    "dirty": true,
+    "status": "available",
+    "status_sha256": "27d7adde55405fafb69a55dd62ad0dd43b64fec2166b197d2255b893dd46d611"
+  },
+  "versions": {
+    "data_schema_version": "1",
+    "dependencies": {
+      "numba": "0.67.0",
+      "numpy": "2.5.2"
+    },
+    "distribution_name": "pic-probe-simulation",
+    "physics_model_version": "3",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "rng_algorithm_version": "counter-splitmix64-v1",
+    "software_version": "0.2.1.dev0",
+    "source_commit": "04771dea2d76cca2e4e8b2469618c16ac2eb4a17"
+  }
+}

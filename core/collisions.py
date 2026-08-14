@@ -597,6 +597,18 @@ def _validate_reference_values(
         raise ValueError("The event limit must be a nonnegative integer.")
 
 
+def _validate_particle_durations(
+    particle_duration_s: np.ndarray,
+    particle_shape: tuple[int, ...],
+) -> np.ndarray:
+    durations = np.asarray(particle_duration_s, dtype=np.float64)
+    if durations.ndim != 1 or durations.shape != particle_shape:
+        raise ValueError("The particle-duration array has an invalid shape.")
+    if not np.all(np.isfinite(durations)) or np.any(durations < 0.0):
+        raise ValueError("The particle-duration array has an invalid value.")
+    return durations
+
+
 @jit(nopython=True)
 def _perform_mcc_electron_1d3v_core(
     vx: np.ndarray,
@@ -812,7 +824,7 @@ def _perform_mcc_electron_channels_1d3v_core(
     excitation_thresholds_ev: np.ndarray,
     ionization_channel_tables: np.ndarray,
     ionization_thresholds_ev: np.ndarray,
-    dt: float,
+    particle_duration_s: np.ndarray,
     m_e: float,
     e_min: float,
     inv_de: float,
@@ -847,6 +859,10 @@ def _perform_mcc_electron_channels_1d3v_core(
             dead_particles_skipped += 1
             continue
 
+        duration = particle_duration_s[particle_index]
+        if duration <= 0.0:
+            continue
+
         particle_seed = counter_u64(
             base_seed,
             particle_index,
@@ -855,7 +871,7 @@ def _perform_mcc_electron_channels_1d3v_core(
         draw_counter = 0
         elapsed = 0.0
         particle_events = 0
-        while elapsed < dt:
+        while elapsed < duration:
             velocity_squared = (
                 vx[particle_index] * vx[particle_index]
                 + vy[particle_index] * vy[particle_index]
@@ -901,7 +917,7 @@ def _perform_mcc_electron_channels_1d3v_core(
                 particle_seed,
                 draw_counter,
             )
-            if wait >= dt - elapsed:
+            if wait >= duration - elapsed:
                 break
             if particle_events >= max_events_per_particle:
                 event_limit_stops += 1
@@ -1122,7 +1138,7 @@ def _perform_mcc_ion_1d3v_core(
     n_g: float,
     sigma_cex: np.ndarray,
     sigma_el: np.ndarray,
-    dt: float,
+    particle_duration_s: np.ndarray,
     neutral_thermal_speed: float,
     e_min: float,
     inv_de: float,
@@ -1169,6 +1185,10 @@ def _perform_mcc_ion_1d3v_core(
             dead_particles_skipped += 1
             continue
 
+        duration = particle_duration_s[particle_index]
+        if duration <= 0.0:
+            continue
+
         particle_seed = counter_u64(
             base_seed,
             particle_index,
@@ -1178,13 +1198,13 @@ def _perform_mcc_ion_1d3v_core(
         elapsed = 0.0
         particle_events = 0
         particle_candidates = 0
-        while elapsed < dt:
+        while elapsed < duration:
             wait, draw_counter = _sample_wait(
                 candidate_rate,
                 particle_seed,
                 draw_counter,
             )
-            if wait >= dt - elapsed:
+            if wait >= duration - elapsed:
                 break
             if particle_candidates >= max_candidates_per_particle:
                 candidate_limit_stops += 1
@@ -1405,7 +1425,7 @@ def perform_mcc_electron_1d3v_reference(
     )
 
 
-def perform_mcc_electron_channels_1d3v(
+def _perform_mcc_electron_channels_1d3v_durations(
     vx: np.ndarray,
     vy: np.ndarray,
     vz: np.ndarray,
@@ -1416,7 +1436,7 @@ def perform_mcc_electron_channels_1d3v(
     excitation_thresholds_ev: np.ndarray,
     ionization_channel_tables: np.ndarray,
     ionization_thresholds_ev: np.ndarray,
-    dt: float,
+    particle_duration_s: np.ndarray,
     m_e: float,
     e_min: float,
     inv_de: float,
@@ -1429,6 +1449,7 @@ def perform_mcc_electron_channels_1d3v(
     max_events_per_particle: int = 64,
 ) -> ElectronCollisionResult:
     _validate_particle_arrays(vx, vy, vz, alive)
+    durations = _validate_particle_durations(particle_duration_s, vx.shape)
     _validate_sigma_tables(sigma_el)
     _validate_channel_tables(
         excitation_channel_tables,
@@ -1444,7 +1465,7 @@ def perform_mcc_electron_channels_1d3v(
     )
     _validate_reference_values(
         n_g,
-        dt,
+        float(np.max(durations, initial=0.0)),
         m_e,
         e_charge,
         max_events_per_particle,
@@ -1497,7 +1518,7 @@ def perform_mcc_electron_channels_1d3v(
         excitation_thresholds_ev,
         ionization_channel_tables,
         ionization_thresholds_ev,
-        dt,
+        durations,
         m_e,
         e_min,
         inv_de,
@@ -1531,7 +1552,103 @@ def perform_mcc_electron_channels_1d3v(
     )
 
 
-def perform_mcc_ion_1d3v_reference(
+def perform_mcc_electron_channels_1d3v(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    alive: np.ndarray,
+    n_g: float,
+    sigma_el: np.ndarray,
+    excitation_channel_tables: np.ndarray,
+    excitation_thresholds_ev: np.ndarray,
+    ionization_channel_tables: np.ndarray,
+    ionization_thresholds_ev: np.ndarray,
+    dt: float,
+    m_e: float,
+    e_min: float,
+    inv_de: float,
+    e_charge: float,
+    secondary_buffer: SecondaryElectronEventBuffer,
+    *,
+    seed: int,
+    step_index: int = 0,
+    stream_id: int = 0,
+    max_events_per_particle: int = 64,
+) -> ElectronCollisionResult:
+    durations = np.full(vx.shape, dt, dtype=np.float64)
+    return _perform_mcc_electron_channels_1d3v_durations(
+        vx,
+        vy,
+        vz,
+        alive,
+        n_g,
+        sigma_el,
+        excitation_channel_tables,
+        excitation_thresholds_ev,
+        ionization_channel_tables,
+        ionization_thresholds_ev,
+        durations,
+        m_e,
+        e_min,
+        inv_de,
+        e_charge,
+        secondary_buffer,
+        seed=seed,
+        step_index=step_index,
+        stream_id=stream_id,
+        max_events_per_particle=max_events_per_particle,
+    )
+
+
+def perform_mcc_electron_channels_1d3v_variable_time(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    alive: np.ndarray,
+    n_g: float,
+    sigma_el: np.ndarray,
+    excitation_channel_tables: np.ndarray,
+    excitation_thresholds_ev: np.ndarray,
+    ionization_channel_tables: np.ndarray,
+    ionization_thresholds_ev: np.ndarray,
+    particle_duration_s: np.ndarray,
+    m_e: float,
+    e_min: float,
+    inv_de: float,
+    e_charge: float,
+    secondary_buffer: SecondaryElectronEventBuffer,
+    *,
+    seed: int,
+    step_index: int = 0,
+    stream_id: int = 0,
+    max_events_per_particle: int = 64,
+) -> ElectronCollisionResult:
+    """Calculate collisions for particle-specific time intervals."""
+    return _perform_mcc_electron_channels_1d3v_durations(
+        vx,
+        vy,
+        vz,
+        alive,
+        n_g,
+        sigma_el,
+        excitation_channel_tables,
+        excitation_thresholds_ev,
+        ionization_channel_tables,
+        ionization_thresholds_ev,
+        particle_duration_s,
+        m_e,
+        e_min,
+        inv_de,
+        e_charge,
+        secondary_buffer,
+        seed=seed,
+        step_index=step_index,
+        stream_id=stream_id,
+        max_events_per_particle=max_events_per_particle,
+    )
+
+
+def _perform_mcc_ion_1d3v_durations(
     vx: np.ndarray,
     vy: np.ndarray,
     vz: np.ndarray,
@@ -1539,7 +1656,7 @@ def perform_mcc_ion_1d3v_reference(
     n_g: float,
     sigma_cex: np.ndarray,
     sigma_el: np.ndarray,
-    dt: float,
+    particle_duration_s: np.ndarray,
     neutral_thermal_speed: float,
     e_min: float,
     inv_de: float,
@@ -1553,10 +1670,11 @@ def perform_mcc_ion_1d3v_reference(
     max_candidates_per_particle: int | None = None,
 ) -> IonCollisionResult:
     _validate_particle_arrays(vx, vy, vz, alive)
+    durations = _validate_particle_durations(particle_duration_s, vx.shape)
     _validate_sigma_tables(sigma_cex, sigma_el)
     _validate_reference_values(
         n_g,
-        dt,
+        float(np.max(durations, initial=0.0)),
         m_i,
         e_charge,
         max_events_per_particle,
@@ -1611,7 +1729,7 @@ def perform_mcc_ion_1d3v_reference(
         n_g,
         sigma_cex,
         sigma_el,
-        dt,
+        durations,
         neutral_thermal_speed,
         e_min,
         inv_de,
@@ -1633,6 +1751,94 @@ def perform_mcc_ion_1d3v_reference(
     )
 
 
+def perform_mcc_ion_1d3v_reference(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    alive: np.ndarray,
+    n_g: float,
+    sigma_cex: np.ndarray,
+    sigma_el: np.ndarray,
+    dt: float,
+    neutral_thermal_speed: float,
+    e_min: float,
+    inv_de: float,
+    e_charge: float,
+    m_i: float,
+    *,
+    seed: int,
+    step_index: int = 0,
+    stream_id: int = 0,
+    max_events_per_particle: int = 64,
+    max_candidates_per_particle: int | None = None,
+) -> IonCollisionResult:
+    durations = np.full(vx.shape, dt, dtype=np.float64)
+    return _perform_mcc_ion_1d3v_durations(
+        vx,
+        vy,
+        vz,
+        alive,
+        n_g,
+        sigma_cex,
+        sigma_el,
+        durations,
+        neutral_thermal_speed,
+        e_min,
+        inv_de,
+        e_charge,
+        m_i,
+        seed=seed,
+        step_index=step_index,
+        stream_id=stream_id,
+        max_events_per_particle=max_events_per_particle,
+        max_candidates_per_particle=max_candidates_per_particle,
+    )
+
+
+def perform_mcc_ion_1d3v_variable_time(
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    alive: np.ndarray,
+    n_g: float,
+    sigma_cex: np.ndarray,
+    sigma_el: np.ndarray,
+    particle_duration_s: np.ndarray,
+    neutral_thermal_speed: float,
+    e_min: float,
+    inv_de: float,
+    e_charge: float,
+    m_i: float,
+    *,
+    seed: int,
+    step_index: int = 0,
+    stream_id: int = 0,
+    max_events_per_particle: int = 64,
+    max_candidates_per_particle: int | None = None,
+) -> IonCollisionResult:
+    """Calculate ion collisions for particle-specific time intervals."""
+    return _perform_mcc_ion_1d3v_durations(
+        vx,
+        vy,
+        vz,
+        alive,
+        n_g,
+        sigma_cex,
+        sigma_el,
+        particle_duration_s,
+        neutral_thermal_speed,
+        e_min,
+        inv_de,
+        e_charge,
+        m_i,
+        seed=seed,
+        step_index=step_index,
+        stream_id=stream_id,
+        max_events_per_particle=max_events_per_particle,
+        max_candidates_per_particle=max_candidates_per_particle,
+    )
+
+
 perform_mcc_electron_1d3v = perform_mcc_electron_1d3v_reference
 perform_mcc_ion_1d3v = perform_mcc_ion_1d3v_reference
 
@@ -1646,9 +1852,11 @@ __all__ = [
     "perform_mcc_electron",
     "perform_mcc_electron_1d3v",
     "perform_mcc_electron_channels_1d3v",
+    "perform_mcc_electron_channels_1d3v_variable_time",
     "perform_mcc_electron_1d3v_reference",
     "perform_mcc_ion",
     "perform_mcc_ion_1d3v",
     "perform_mcc_ion_1d3v_reference",
+    "perform_mcc_ion_1d3v_variable_time",
     "sigma_from_uniform_table",
 ]

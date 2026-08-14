@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "retrieved_date": "2026-08-14",
+  "redistribution": {
+    "raw_files_committed": false,
+    "policy_url": "https://us.lxcat.net/instructions/redistribution.php",
+    "reason": "LXCat does not authorize third-party redistribution without permission."
+  },
+  "datasets": [
+    {
+      "role": "electron_argon_primary",
+      "database": "Phelps",
+      "selection": "complete Ar set used to match the Cenian 2005 model",
+      "local_filename": "electron_ar_phelps_20260814.txt",
+      "sha256": "4a3ee09a3a4dd10588c3d65ca631868553588426065ef0931e7c8c29a08b788f",
+      "process_counts": {
+        "EFFECTIVE": 1,
+        "EXCITATION": 1,
+        "IONIZATION": 1
+      },
+      "reference": "Phelps database, www.lxcat.net, retrieved on August 14, 2026."
+    },
+    {
+      "role": "electron_argon_sensitivity",
+      "database": "Biagi",
+      "selection": "Magboltz 8.97 complete Ar set",
+      "local_filename": "electron_ar_biagi_8.97_20260814.txt",
+      "sha256": "d685e9696922b3159e6ff8b7811aadf38440406de9a1b35842ddf52e04c1d67d",
+      "process_counts": {
+        "ELASTIC": 1,
+        "EXCITATION": 44,
+        "IONIZATION": 1
+      },
+      "reference": "Biagi database, www.lxcat.net, retrieved on August 14, 2026.",
+      "purpose": "cross-section model sensitivity, not the primary Cenian replication"
+    },
+    {
+      "role": "argon_ion_in_argon",
+      "database": "Phelps",
+      "selection": "Ar+ / Ar complete Backscat and Isotropic components",
+      "local_filename": "ion_ar_phelps_20260814.txt",
+      "sha256": "7e0efe6690b7d5cff9687647bc0b1ff272c9bbe0d20da04e86208d99d2d07bc8",
+      "process_counts": {
+        "BACKSCATTER": 1,
+        "ISOTROPIC": 1
+      },
+      "reference": "Phelps database, www.lxcat.net, retrieved on August 14, 2026.",
+      "primary_reference": "A. V. Phelps, J. Appl. Phys. 76, 747 (1994), DOI: 10.1063/1.357820"
+    }
+  ],
+  "model_mapping": {
+    "Phelps BACKSCATTER": "resonant charge exchange for the symmetric Ar+/Ar pair",
+    "Phelps ISOTROPIC": "equal-mass isotropic elastic scattering",
+    "mapping_is_automatic": false,
+    "required_config_flag": "CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX"
+  }
+}

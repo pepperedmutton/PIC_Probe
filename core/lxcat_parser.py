@@ -16,6 +16,7 @@ _PROCESS_TYPES = {
     "ATTACHMENT",
     "CHARGE EXCHANGE",
     "BACKSCATTER",
+    "ISOTROPIC",
 }
 
 _SCATTERING_MODELS = {
@@ -26,6 +27,7 @@ _SCATTERING_MODELS = {
     "ATTACHMENT": "attachment-unspecified",
     "CHARGE EXCHANGE": "charge-exchange",
     "BACKSCATTER": "backscatter",
+    "ISOTROPIC": "isotropic",
 }
 
 _NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][+-]?\d+)?"
@@ -157,6 +159,8 @@ def _infer_process_type(text: str) -> str | None:
     value = " ".join(text.upper().split())
     if "BACKSCAT" in value:
         return "BACKSCATTER"
+    if "ISOTROP" in value:
+        return "ISOTROPIC"
     if "CHARGE EXCHANGE" in value or "CHARGE-EXCHANGE" in value:
         return "CHARGE EXCHANGE"
     if re.search(r"\bCEX\b", value):
@@ -330,6 +334,8 @@ def _make_process(
     source_sha256: str,
     source_energy_unit: str,
     source_cross_section_unit: str,
+    *,
+    strict: bool,
 ) -> CrossSectionProcess:
     process_label = _metadata_value(header_lines, "PROCESS:")
     if keyword is None:
@@ -345,7 +351,7 @@ def _make_process(
         )
         if inferred_type is not None and inferred_type != process_type:
             compatible = {inferred_type, process_type} <= {"ELASTIC", "EFFECTIVE"}
-            if not compatible:
+            if strict or not compatible:
                 raise ValueError("The process keyword and PROCESS field do not agree.")
 
     species = _metadata_value(header_lines, "SPECIES:")
@@ -450,6 +456,7 @@ def parse_cross_section_file(
                     source_sha256=source_sha256,
                     source_energy_unit=source_energy_unit,
                     source_cross_section_unit=source_cross_section_unit,
+                    strict=strict,
                 )
             )
             index = end_index + 1
@@ -479,6 +486,7 @@ def parse_cross_section_file(
                     source_sha256=source_sha256,
                     source_energy_unit=source_energy_unit,
                     source_cross_section_unit=source_cross_section_unit,
+                    strict=strict,
                 )
             )
             index = end_index + 1
@@ -521,7 +529,11 @@ def _legacy_key(
         return "ion_cex"
     if not electron and process.process_type == "BACKSCATTER":
         return "ion_backscatter" if strict else "ion_cex"
-    if not electron and process.process_type in {"ELASTIC", "EFFECTIVE"}:
+    if not electron and process.process_type in {
+        "ELASTIC",
+        "EFFECTIVE",
+        "ISOTROPIC",
+    }:
         return "ion_elastic"
     return None
 

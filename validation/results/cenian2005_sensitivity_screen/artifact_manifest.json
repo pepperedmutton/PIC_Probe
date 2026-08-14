@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "artifact_type": "cenian2005_three_point_sensitivity_screen",
+  "quality_status": "PREVIEW",
+  "release_decision": "SENSITIVITY_DOES_NOT_EXPLAIN_EXPERIMENT_MISMATCH",
+  "files": {
+    "sensitivity.csv": "417553a07a0494691f41229a9317b554e86dc7be5cca91013029b861ede7a153",
+    "README.md": "691ef70c300127328229b1d0d03607903d43b561df406d578613fbeb505fda83",
+    "sensitivity_plot.png": "f8067b78c891fe01052bb6cbf8256ec5e1bb04aff6735e963009ecab61f47c6c"
+  },
+  "source_simulation_points": {
+    "baseline_12mm": "40e175b88c1990577da830957c6581b18d06ca0d460df5377c2b71d9ff339f98",
+    "domain_20mm": "6780d5b2d60b53fbb08adc53c6deef9f2c6da98642fa21617f6bc917ee098de0",
+    "long_warmup_12mm": "c1ebf0d2b97ece08d08bf7140dde42c51f38907e51235c885345e37db6cad470"
+  },
+  "notes": [
+    "The screen uses one seed and three voltages.",
+    "It is not a grid, time-step, particle, domain, or steady-state convergence study.",
+    "Neither screened change explains the approximately 1.9-fold baseline current magnitude."
+  ]
+}

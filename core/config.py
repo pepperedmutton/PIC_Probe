@@ -56,7 +56,7 @@ class StabilityMetrics:
 class Config:
     """Keep the physical and numerical configuration."""
 
-    CONFIG_SCHEMA_VERSION: ClassVar[int] = 2
+    CONFIG_SCHEMA_VERSION: ClassVar[int] = 3
     MAX_CELL_TO_DEBYE_RATIO: ClassVar[float] = 1.0
     MAX_DT_OMEGA_PE: ClassVar[float] = 0.2
     MAX_CFL: ClassVar[float] = 1.0
@@ -102,6 +102,8 @@ class Config:
     ION_CHARGE_STATE: int = 1
     LXCAT_ELECTRON_FILE: str | None = None
     LXCAT_ION_FILE: str | None = None
+    CROSS_SECTION_STRICT: bool = False
+    CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX: bool = False
     EN_CS_E_MAX: float = 200.0
     EN_CS_N: int = 2001
     ION_CS_E_MAX: float = 200.0
@@ -244,6 +246,8 @@ class Config:
             "ENABLE_ION_NEUTRAL_ELASTIC",
             "ENABLE_COULOMB_COLLISIONS",
             "SMOOTH_DENSITY",
+            "CROSS_SECTION_STRICT",
+            "CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX",
         ):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"Set {name} to a Boolean value.")
@@ -265,6 +269,20 @@ class Config:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"Set {name} to a nonempty value.")
             object.__setattr__(self, name, value.strip())
+
+        supported_species = (
+            self.CROSS_SECTION_TARGET,
+            self.NEUTRAL_SPECIES,
+            self.ION_SPECIES,
+            self.ION_CHARGE_STATE,
+        )
+        if supported_species != ("Ar", "Ar", "Ar+", 1):
+            raise ValueError(
+                "This physics model supports only neutral Ar and singly "
+                "charged Ar+. Set CROSS_SECTION_TARGET='Ar', "
+                "NEUTRAL_SPECIES='Ar', ION_SPECIES='Ar+', and "
+                "ION_CHARGE_STATE=1."
+            )
 
         for name in ("LXCAT_ELECTRON_FILE", "LXCAT_ION_FILE"):
             value = getattr(self, name)

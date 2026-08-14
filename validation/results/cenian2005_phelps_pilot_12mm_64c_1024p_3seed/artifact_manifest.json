@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "artifact_type": "cenian2005_pilot_review_bundle",
+  "quality_status": "PREVIEW",
+  "release_decision": "EXPERIMENT_MISMATCH_NOT_PRODUCTION_READY",
+  "files": {
+    "simulation_points.csv": "40e175b88c1990577da830957c6581b18d06ca0d460df5377c2b71d9ff339f98",
+    "comparison.csv": "f5b6918d854a3c2a513f42ce246a60399ed94c929e9334d2fa19f5dc78622bc9",
+    "metrics.json": "032dd78ec17beb7c054bbc6d73f151a49760ead3119208df8a5671cf99b71035",
+    "manifest.json": "fa0c738ca7ccfe2341a86f09e24a6a6679fefe4adac897ccb9631597b273e4c4",
+    "input_provenance_at_run.json": "83172ba4c74c65c2875e3c9bb7143ece1d07d1a6cad4b203d6eccf0dd9d658db",
+    "comparison_plot.png": "c6272d47050b1dee7df9f6dd25e9a4ace747b62cea2ce07a39a0f8af1e78dccc",
+    "README.md": "c6c138bafb363965f52329db0a7813f24fd1d81918ca350a6dbcb249b5fe9c1d"
+  },
+  "notes": [
+    "The original run manifest hashes the four raw result files.",
+    "The published manifest redacts machine-local paths and records its pre-redaction SHA-256.",
+    "This bundle manifest also hashes the independent review report, plot, and exact run-start provenance snapshot.",
+    "The result is a short research preview and does not pass the experimental comparison."
+  ]
+}

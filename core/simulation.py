@@ -5,7 +5,7 @@ from hashlib import sha256
 from numbers import Integral, Real
 import warnings
 from typing import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -14,8 +14,8 @@ from core.collisions import (
     ElectronCollisionResult,
     IonCollisionResult,
     SecondaryElectronEventBuffer,
-    perform_mcc_electron_channels_1d3v,
-    perform_mcc_ion_1d3v,
+    perform_mcc_electron_channels_1d3v_variable_time,
+    perform_mcc_ion_1d3v_variable_time,
 )
 from core.config import Config
 from core.cross_sections import (
@@ -24,6 +24,7 @@ from core.cross_sections import (
     build_electron_tables_from_lxcat,
     build_ion_tables_from_lxcat,
     load_cross_sections_from_custom_file,
+    load_lxcat_text,
 )
 from core.fields import compute_electric_field, solve_poisson_cylindrical, smooth_density_cylindrical
 from core.particles import (
@@ -59,6 +60,16 @@ class BoundaryInjectionResult:
     crossing_events: int
     active_particles: int
     probe_hits: int
+    active_slots: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.int64),
+        compare=False,
+        repr=False,
+    )
+    time_inside_s: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64),
+        compare=False,
+        repr=False,
+    )
 
 
 def batch_mean_statistics(
@@ -298,6 +309,8 @@ class PICSimulation:
             "ion_coulomb": 0,
             "electron_energy_table_overflow_lookups": 0,
             "ion_energy_table_overflow_lookups": 0,
+            "boundary_entry_particles_processed": 0,
+            "ionization_descendants_processed": 0,
         }
         self.excitation_channel_counters = [
             0 for _ in self.en_excitation_thresholds_ev
@@ -334,7 +347,12 @@ class PICSimulation:
     def _load_cross_sections(self) -> None:
         """Load energy-dependent cross sections (LXCat) or fall back to constants."""
         target = self.config.CROSS_SECTION_TARGET
-        strict = self.config.is_production
+        strict = self.config.is_production or self.config.CROSS_SECTION_STRICT
+        self.cross_section_strict = strict
+        self.ion_backscatter_mapping_requested = (
+            self.config.CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX
+        )
+        self.ion_backscatter_mapping_applied = False
 
         def resolve_path(path_str: str) -> str:
             path = Path(path_str)
@@ -353,6 +371,10 @@ class PICSimulation:
             if self.config.LXCAT_ION_FILE
             else None
         )
+        if strict and (electron_path is None or ion_path is None):
+            raise ValueError(
+                "Strict cross-section loading requires both electron and ion files."
+            )
         self.cross_section_source_files = tuple(
             sorted(
                 {
@@ -362,6 +384,42 @@ class PICSimulation:
                 }
             )
         )
+        self.cross_section_inventory: list[dict[str, object]] = []
+        for source_path in self.cross_section_source_files:
+            source_processes = load_lxcat_text(
+                source_path,
+                default_target=target,
+                strict=strict,
+            )
+            counts: dict[str, int] = {}
+            species: set[str] = set()
+            for process in source_processes:
+                counts[process.process_type] = (
+                    counts.get(process.process_type, 0) + 1
+                )
+                species.add(
+                    f"{process.incident_particle.strip()} / "
+                    f"{process.target_particle.strip()}"
+                )
+            self.cross_section_inventory.append(
+                {
+                    "source_path": source_path,
+                    "source_sha256": (
+                        source_processes[0].source_sha256
+                        if source_processes
+                        else None
+                    ),
+                    "process_counts": dict(sorted(counts.items())),
+                    "species_pairs": sorted(species),
+                }
+            )
+            if source_path == ion_path and any(
+                process.process_type == "BACKSCATTER"
+                for process in source_processes
+            ):
+                self.ion_backscatter_mapping_applied = bool(
+                    self.ion_backscatter_mapping_requested
+                )
         if electron_path is None and ion_path is None:
             self.cross_section_model = "constant_test_tables"
         elif electron_path is not None and ion_path is not None:
@@ -378,6 +436,10 @@ class PICSimulation:
                 strict=strict,
                 ion_e_max=self.config.ION_CS_E_MAX,
                 ion_n_bins=self.config.ION_CS_N,
+                confirm_symmetric_backscatter_as_cex=(
+                    self.ion_backscatter_mapping_requested
+                ),
+                ion_species=self.config.ION_SPECIES,
             )
         else:
             if electron_path is not None:
@@ -407,6 +469,10 @@ class PICSimulation:
                     n_bins=self.config.ION_CS_N,
                     fallback_cex=self.sigma_cex,
                     strict=strict,
+                    confirm_symmetric_backscatter_as_cex=(
+                        self.ion_backscatter_mapping_requested
+                    ),
+                    ion_species=self.config.ION_SPECIES,
                 )
             else:
                 ion_tables = build_constant_ion_tables(
@@ -804,6 +870,8 @@ class PICSimulation:
             crossing_events=crossing_events,
             active_particles=int(np.count_nonzero(active_mask)),
             probe_hits=int(np.count_nonzero(probe_mask)),
+            active_slots=active_slots.copy(),
+            time_inside_s=time_inside[active_mask].copy(),
         )
 
     def _ensure_injection_capacity(self) -> None:
@@ -879,13 +947,14 @@ class PICSimulation:
             energy_ev=np.empty(capacity, dtype=float),
         )
 
-    def _spawn_ionization_events(
+    def _spawn_ionization_event_products(
         self,
         events: SecondaryElectronEventBuffer,
-    ) -> int:
+    ) -> tuple[np.ndarray, np.ndarray]:
         n_new = int(events.count)
         if n_new == 0:
-            return 0
+            empty = np.empty(0, dtype=np.int64)
+            return empty, empty.copy()
         if not self.enable_secondaries:
             self._stop_failed_run(
                 "Ionization occurred while ionization products were disabled."
@@ -929,7 +998,15 @@ class PICSimulation:
         self.vz_i[ion_slots] = self.rng.normal(0.0, self.vth_gas, n_new)
         self.collision_counters["secondary_electrons"] += n_new
         self.collision_counters["secondary_ions"] += n_new
-        return n_new
+        return electron_slots.copy(), ion_slots.copy()
+
+    def _spawn_ionization_events(
+        self,
+        events: SecondaryElectronEventBuffer,
+    ) -> int:
+        """Create ionization products and give their count."""
+        electron_slots, _ = self._spawn_ionization_event_products(events)
+        return int(electron_slots.size)
 
     @staticmethod
     def _table_energy_max(e_min: float, inv_de: float, size: int) -> float:
@@ -1029,48 +1106,56 @@ class PICSimulation:
         vz[selected] = speed * direction_z
         return int(selected.size)
 
-    def _apply_collision_half_step(self, phase: int) -> None:
-        duration = 0.5 * self.dt
-        alive_e = (self.r_e > self.r_min) & (self.r_e < self.r_max)
-        alive_i = (self.r_i > self.r_min) & (self.r_i < self.r_max)
-        self._check_collision_energy_range(alive_e, alive_i)
-
-        ion_result: IonCollisionResult = perform_mcc_ion_1d3v(
-            self.vr_i,
-            self.vt_i,
-            self.vz_i,
-            alive_i,
-            self.n_g,
-            self.ion_sigma_cex,
-            self.ion_sigma_elastic,
-            duration,
-            self.vth_gas,
-            self.ion_e_min,
-            self.ion_inv_de,
-            self.config.e,
-            self.config.m_i,
-            seed=self.root_seed,
-            step_index=2 * self.step_index + phase,
-            max_events_per_particle=self.max_collision_events_per_particle,
+    def _apply_coulomb_scatter_variable_3d(
+        self,
+        r: np.ndarray,
+        vr: np.ndarray,
+        vt: np.ndarray,
+        vz: np.ndarray,
+        nu: float,
+        particle_duration_s: np.ndarray,
+    ) -> int:
+        if nu <= 0.0:
+            return 0
+        active = np.flatnonzero(
+            (r > self.r_min)
+            & (r < self.r_max)
+            & (particle_duration_s > 0.0)
         )
-        if ion_result.event_limit_stops:
+        if active.size == 0:
+            return 0
+        probability = 1.0 - np.exp(-nu * particle_duration_s[active])
+        selected = active[self.rng.random(active.size) < probability]
+        if selected.size == 0:
+            return 0
+        speed = np.sqrt(
+            vr[selected] ** 2 + vt[selected] ** 2 + vz[selected] ** 2
+        )
+        direction_z = 2.0 * self.rng.random(selected.size) - 1.0
+        azimuth = 2.0 * math.pi * self.rng.random(selected.size)
+        transverse = np.sqrt(np.maximum(0.0, 1.0 - direction_z**2))
+        vr[selected] = speed * transverse * np.cos(azimuth)
+        vt[selected] = speed * transverse * np.sin(azimuth)
+        vz[selected] = speed * direction_z
+        return int(selected.size)
+
+    def _record_ion_collision_result(self, result: IonCollisionResult) -> None:
+        if result.event_limit_stops:
             self._stop_failed_run(
                 "The ion collision event limit stopped one or more particles."
             )
-        if ion_result.candidate_limit_stops:
+        if result.candidate_limit_stops:
             self._stop_failed_run(
                 "The ion null-collision candidate limit stopped one or more particles."
             )
-        self.collision_counters[
-            "ion_collision_candidates"
-        ] += ion_result.candidate_events
+        self.collision_counters["ion_collision_candidates"] += result.candidate_events
         self.collision_counters[
             "ion_null_collision_rejections"
-        ] += ion_result.null_collision_rejections
+        ] += result.null_collision_rejections
         self.collision_counters[
             "ion_energy_table_overflow_lookups"
-        ] += ion_result.energy_table_overflow_lookups
-        if ion_result.energy_table_overflow_lookups:
+        ] += result.energy_table_overflow_lookups
+        if result.energy_table_overflow_lookups:
             message = "An ion collision used energy above the cross-section table."
             if self.config.is_production:
                 self._stop_failed_run(message)
@@ -1085,52 +1170,26 @@ class PICSimulation:
                 self._reported_warnings.add("ion_collision_energy_range")
         self.collision_counters[
             "ion_charge_exchange"
-        ] += ion_result.charge_exchange_events
-        self.collision_counters["ion_elastic"] += ion_result.elastic_events
+        ] += result.charge_exchange_events
+        self.collision_counters["ion_elastic"] += result.elastic_events
 
-        buffer_capacity = (
-            int(np.count_nonzero(alive_e))
-            * self.max_collision_events_per_particle
-        )
-        secondary_buffer = self._make_secondary_buffer(buffer_capacity)
-        electron_result: ElectronCollisionResult = (
-            perform_mcc_electron_channels_1d3v(
-                self.vr_e,
-                self.vt_e,
-                self.vz_e,
-                alive_e,
-                self.n_g,
-                self.en_sigma_elastic,
-                self.en_excitation_channel_tables,
-                self.en_excitation_thresholds_ev,
-                self.en_ionization_channel_tables,
-                self.en_ionization_thresholds_ev,
-                duration,
-                self.config.m_e,
-                self.en_e_min,
-                self.en_inv_de,
-                self.config.e,
-                secondary_buffer,
-                seed=self.root_seed,
-                step_index=2 * self.step_index + phase,
-                max_events_per_particle=self.max_collision_events_per_particle,
-            )
-        )
-        if electron_result.secondary_events_dropped:
+    def _record_electron_collision_result(
+        self,
+        result: ElectronCollisionResult,
+    ) -> None:
+        if result.secondary_events_dropped:
             self._stop_failed_run(
                 "The ionization event buffer dropped one or more products."
             )
-        if electron_result.event_limit_stops:
+        if result.event_limit_stops:
             self._stop_failed_run(
                 "The electron collision event limit stopped one or more particles."
             )
         self.collision_counters[
             "electron_energy_table_overflow_lookups"
-        ] += electron_result.energy_table_overflow_lookups
-        if electron_result.energy_table_overflow_lookups:
-            message = (
-                "An electron collision used energy above the cross-section table."
-            )
+        ] += result.energy_table_overflow_lookups
+        if result.energy_table_overflow_lookups:
+            message = "An electron collision used energy above the cross-section table."
             if self.config.is_production:
                 self._stop_failed_run(message)
             if "electron_collision_energy_range" not in getattr(
@@ -1142,68 +1201,238 @@ class PICSimulation:
                 if not hasattr(self, "_reported_warnings"):
                     self._reported_warnings = set()
                 self._reported_warnings.add("electron_collision_energy_range")
-        if (
-            electron_result.ionization_events
-            != electron_result.secondary_events_written
-        ):
+        if result.ionization_events != result.secondary_events_written:
             self._stop_failed_run(
                 "The ionization event count does not equal the product count."
             )
-        if (
-            int(np.sum(electron_result.excitation_channel_events))
-            != electron_result.excitation_events
-        ):
+        if int(np.sum(result.excitation_channel_events)) != result.excitation_events:
             self._stop_failed_run(
                 "The excitation channel count does not equal the event count."
             )
-        if (
-            int(np.sum(electron_result.ionization_channel_events))
-            != electron_result.ionization_events
-        ):
+        if int(np.sum(result.ionization_channel_events)) != result.ionization_events:
             self._stop_failed_run(
                 "The ionization channel count does not equal the event count."
             )
-
-        self.collision_counters[
-            "electron_elastic"
-        ] += electron_result.elastic_events
+        self.collision_counters["electron_elastic"] += result.elastic_events
         self.collision_counters[
             "electron_excitation"
-        ] += electron_result.excitation_events
+        ] += result.excitation_events
         self.collision_counters[
             "electron_ionization"
-        ] += electron_result.ionization_events
-        for index, count in enumerate(
-            electron_result.excitation_channel_events
-        ):
+        ] += result.ionization_events
+        for index, count in enumerate(result.excitation_channel_events):
             self.excitation_channel_counters[index] += int(count)
-        for index, count in enumerate(
-            electron_result.ionization_channel_events
-        ):
+        for index, count in enumerate(result.ionization_channel_events):
             self.ionization_channel_counters[index] += int(count)
-        self._spawn_ionization_events(secondary_buffer)
+
+    def _apply_collision_intervals(
+        self,
+        electron_duration_s: np.ndarray,
+        ion_duration_s: np.ndarray,
+        *,
+        step_index: int,
+        stream_id: int,
+    ) -> SecondaryElectronEventBuffer:
+        if (
+            electron_duration_s.shape != (self.n_particles,)
+            or ion_duration_s.shape != (self.n_particles,)
+        ):
+            raise ValueError("The collision-duration arrays have invalid shapes.")
+        if (
+            np.any(~np.isfinite(electron_duration_s))
+            or np.any(electron_duration_s < 0.0)
+            or np.any(~np.isfinite(ion_duration_s))
+            or np.any(ion_duration_s < 0.0)
+        ):
+            raise ValueError("A collision-duration array has an invalid value.")
+
+        alive_i = (
+            (self.r_i > self.r_min)
+            & (self.r_i < self.r_max)
+            & (ion_duration_s > 0.0)
+        )
+        if np.any(alive_i):
+            ion_result = perform_mcc_ion_1d3v_variable_time(
+                self.vr_i,
+                self.vt_i,
+                self.vz_i,
+                alive_i,
+                self.n_g,
+                self.ion_sigma_cex,
+                self.ion_sigma_elastic,
+                ion_duration_s,
+                self.vth_gas,
+                self.ion_e_min,
+                self.ion_inv_de,
+                self.config.e,
+                self.config.m_i,
+                seed=self.root_seed,
+                step_index=step_index,
+                stream_id=stream_id,
+                max_events_per_particle=self.max_collision_events_per_particle,
+            )
+            self._record_ion_collision_result(ion_result)
+
+        alive_e = (
+            (self.r_e > self.r_min)
+            & (self.r_e < self.r_max)
+            & (electron_duration_s > 0.0)
+        )
+        buffer_capacity = (
+            int(np.count_nonzero(alive_e))
+            * self.max_collision_events_per_particle
+        )
+        secondary_buffer = self._make_secondary_buffer(buffer_capacity)
+        if np.any(alive_e):
+            electron_result = perform_mcc_electron_channels_1d3v_variable_time(
+                self.vr_e,
+                self.vt_e,
+                self.vz_e,
+                alive_e,
+                self.n_g,
+                self.en_sigma_elastic,
+                self.en_excitation_channel_tables,
+                self.en_excitation_thresholds_ev,
+                self.en_ionization_channel_tables,
+                self.en_ionization_thresholds_ev,
+                electron_duration_s,
+                self.config.m_e,
+                self.en_e_min,
+                self.en_inv_de,
+                self.config.e,
+                secondary_buffer,
+                seed=self.root_seed,
+                step_index=step_index,
+                stream_id=stream_id,
+                max_events_per_particle=self.max_collision_events_per_particle,
+            )
+            self._record_electron_collision_result(electron_result)
 
         if self.enable_coulomb:
             self.collision_counters[
                 "electron_coulomb"
-            ] += self._apply_coulomb_scatter_3d(
+            ] += self._apply_coulomb_scatter_variable_3d(
                 self.r_e,
                 self.vr_e,
                 self.vt_e,
                 self.vz_e,
                 self.nu_ei,
-                duration,
+                electron_duration_s,
             )
             self.collision_counters[
                 "ion_coulomb"
-            ] += self._apply_coulomb_scatter_3d(
+            ] += self._apply_coulomb_scatter_variable_3d(
                 self.r_i,
                 self.vr_i,
                 self.vt_i,
                 self.vz_i,
                 self.nu_ii,
-                duration,
+                ion_duration_s,
             )
+        return secondary_buffer
+
+    def _process_ionization_descendants(
+        self,
+        events: SecondaryElectronEventBuffer,
+        parent_duration_s: np.ndarray,
+        *,
+        step_index: int,
+        stream_id: int,
+    ) -> None:
+        current_events = events
+        current_parent_duration = parent_duration_s
+        while current_events.count:
+            count = int(current_events.count)
+            parent_index = current_events.parent_index[:count]
+            if (
+                np.any(parent_index < 0)
+                or np.any(parent_index >= current_parent_duration.size)
+            ):
+                self._stop_failed_run(
+                    "An ionization event has an invalid duration parent."
+                )
+            available = current_parent_duration[parent_index]
+            event_time = current_events.event_time_s[:count]
+            tolerance = np.maximum(np.finfo(float).tiny, available) * 1.0e-12
+            if np.any(event_time < -tolerance) or np.any(
+                event_time > available + tolerance
+            ):
+                self._stop_failed_run(
+                    "An ionization event time is outside its collision interval."
+                )
+            remaining = np.maximum(0.0, available - event_time)
+            electron_slots, ion_slots = self._spawn_ionization_event_products(
+                current_events
+            )
+
+            electron_duration = np.zeros(self.n_particles, dtype=np.float64)
+            ion_duration = np.zeros(self.n_particles, dtype=np.float64)
+            electron_duration[electron_slots] = remaining
+            ion_duration[ion_slots] = remaining
+            self.collision_counters[
+                "ionization_descendants_processed"
+            ] += 2 * int(np.count_nonzero(remaining > 0.0))
+            current_events = self._apply_collision_intervals(
+                electron_duration,
+                ion_duration,
+                step_index=step_index,
+                stream_id=stream_id,
+            )
+            current_parent_duration = electron_duration
+
+    def _apply_collision_half_step(self, phase: int) -> None:
+        duration = 0.5 * self.dt
+        alive_e = (self.r_e > self.r_min) & (self.r_e < self.r_max)
+        alive_i = (self.r_i > self.r_min) & (self.r_i < self.r_max)
+        self._check_collision_energy_range(alive_e, alive_i)
+
+        electron_duration = np.zeros(self.n_particles, dtype=np.float64)
+        ion_duration = np.zeros(self.n_particles, dtype=np.float64)
+        electron_duration[alive_e] = duration
+        ion_duration[alive_i] = duration
+        collision_step = 2 * self.step_index + phase
+        events = self._apply_collision_intervals(
+            electron_duration,
+            ion_duration,
+            step_index=collision_step,
+            stream_id=0,
+        )
+        self._process_ionization_descendants(
+            events,
+            electron_duration,
+            step_index=collision_step,
+            stream_id=0,
+        )
+
+    def _apply_boundary_entry_collisions(
+        self,
+        electron_injection: BoundaryInjectionResult,
+        ion_injection: BoundaryInjectionResult,
+    ) -> None:
+        electron_duration = np.zeros(self.n_particles, dtype=np.float64)
+        ion_duration = np.zeros(self.n_particles, dtype=np.float64)
+        electron_duration[
+            electron_injection.active_slots
+        ] = electron_injection.time_inside_s
+        ion_duration[
+            ion_injection.active_slots
+        ] = ion_injection.time_inside_s
+        processed = int(np.count_nonzero(electron_duration > 0.0))
+        processed += int(np.count_nonzero(ion_duration > 0.0))
+        self.collision_counters["boundary_entry_particles_processed"] += processed
+        collision_step = 2 * self.step_index + 1
+        events = self._apply_collision_intervals(
+            electron_duration,
+            ion_duration,
+            step_index=collision_step,
+            stream_id=1,
+        )
+        self._process_ionization_descendants(
+            events,
+            electron_duration,
+            step_index=collision_step,
+            stream_id=1,
+        )
 
     def _record_runtime_warning(self, key: str, message: str) -> None:
         if key in self._runtime_warning_keys:
@@ -1562,6 +1791,10 @@ class PICSimulation:
         ] += ion_injection.probe_hits
         e_hits += electron_injection.probe_hits
         i_hits += ion_injection.probe_hits
+        self._apply_boundary_entry_collisions(
+            electron_injection,
+            ion_injection,
+        )
         self._update_fields()
         self._require_particle_ledger()
         self.step_index += 1
@@ -1888,10 +2121,19 @@ class PICSimulation:
             ),
             "max_secondary_buffer_bytes": self.max_secondary_buffer_bytes,
             "cross_section_model": self.cross_section_model,
+            "cross_section_strict": self.cross_section_strict,
+            "cross_section_inventory": self.cross_section_inventory,
+            "ion_backscatter_mapping_requested": (
+                self.ion_backscatter_mapping_requested
+            ),
+            "ion_backscatter_mapping": (
+                "explicit symmetric ion-parent-neutral charge exchange"
+                if self.ion_backscatter_mapping_applied
+                else "not applied"
+            ),
             "physics_limitations": [
-                "boundary_injection_skips_remaining_entry_step_collisions",
+                "boundary_entry_motion_uses_precollision_velocity",
                 "external_validation_not_complete",
-                "ionization_products_skip_remaining_collision_half_step",
                 "preview_coulomb_operator_not_release_model",
             ]
             + (

@@ -1,0 +1,18 @@
+{
+  "absolute_current_no_scaling": true,
+  "experimental_point_count": 11,
+  "fraction_within_combined_2sigma": 0.0,
+  "maximum_absolute_error_A": 1.834884037569118e-05,
+  "mean_absolute_error_A": 1.2282604581030438e-05,
+  "mean_absolute_relative_error": 0.8966571434682834,
+  "mean_bias_A": -1.2282604581030438e-05,
+  "normalized_root_mean_square_error": 0.8915109690094828,
+  "points_within_combined_2sigma": 0,
+  "quality_status": "PREVIEW",
+  "release_decision": "NOT_EVALUATED_RESEARCH_PREVIEW",
+  "root_mean_square_error_A": 1.3019555500336372e-05,
+  "root_mean_square_z_score": 18.357877317114674,
+  "seed_count": 3,
+  "simulation_row_count": 33,
+  "uncertainty_statement": "The combined value includes digitization uncertainty and simulation standard error. It does not include full experimental system uncertainty."
+}

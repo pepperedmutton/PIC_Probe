@@ -1,0 +1,102 @@
+{
+  "dataset_id": "cenian2005_fig2_rp_lambda_0p26",
+  "data_kind": "figure_digitization",
+  "review_status": "single_digitizer_not_independently_reviewed",
+  "source": {
+    "title": "Particle-in-cell Monte Carlo modeling of Langmuir probes in an Ar plasma",
+    "authors": [
+      "A. Cenian",
+      "A. Chernukho",
+      "A. Bogaerts",
+      "R. Gijbels",
+      "C. Leys"
+    ],
+    "journal": "Journal of Applied Physics",
+    "volume": 97,
+    "article": "123310",
+    "publication_date": "2005-06-29",
+    "doi": "10.1063/1.1938275",
+    "url": "https://medialibrary.uantwerpen.be/oldcontent/container2642/files/jap05particle.pdf",
+    "pdf_page": 4,
+    "printed_page": "123310-4",
+    "figure": "Figure 2",
+    "source_pdf_sha256": "9cb65cf3a6ea98d0d6d16ad238d06ac405feb9cbb379cb388058cdc152bc7571",
+    "source_pdf_size_bytes": 309997,
+    "access_date": "2026-08-13"
+  },
+  "rights": {
+    "source_notice": "Copyright 2005 American Institute of Physics. No open redistribution license was identified.",
+    "repository_scope": "Derived numerical values and source metadata only. The source PDF and page image are not included."
+  },
+  "experiment": {
+    "device": "standard_double_plasma_machine",
+    "working_gas": "Ar",
+    "ion_species": "Ar+",
+    "flow": "nonflowing",
+    "magnetic_field": "not_reported_for_the_experimental_case",
+    "probe_geometry": "long_cylinder",
+    "probe_radius_m": 0.000313,
+    "probe_length_m": 0.047,
+    "pressure_torr": 0.0013,
+    "pressure_pa": 0.1733190789,
+    "neutral_density_reported_m3": 4.3e19,
+    "neutral_density_300K_ideal_gas_m3": 4.1844832623e19,
+    "electron_density_m3": 7.15e13,
+    "electron_density_method": "Druyvesteyn_analysis_of_the_probe_characteristic",
+    "electron_temperature_eV": 1.9,
+    "electron_temperature_method": "retarding_branch_of_the_probe_characteristic",
+    "ion_temperature_eV": 0.025,
+    "debye_length_reported_m": 0.00121,
+    "debye_length_recalculated_m": 0.0012118335,
+    "probe_radius_to_debye_length_reported": 0.26,
+    "probe_radius_to_debye_length_recalculated": 0.2582863,
+    "experimental_floating_potential_V": -7.0,
+    "experimental_floating_potential_source": "author_communication_reported_in_the_article",
+    "bias_reference": "plasma_potential",
+    "current_sign": {
+      "source_figure": "negative_in_the_ion_collection_region",
+      "code_mapping": "PICSimulation.avg_current equals electron-current magnitude minus ion-current magnitude",
+      "do_not_use": "PICSimulation.avg_conventional_current because it reverses the source sign"
+    },
+    "probe_surface": "fully_absorbing_in_the_associated_pic_mc_model"
+  },
+  "digitization": {
+    "render_dpi": 300,
+    "rendered_page_pixels": [2550, 3300],
+    "pixel_origin": "top_left",
+    "axis_calibration": {
+      "voltage": {
+        "point_1": {"value_V": -60.0, "x_px": 381},
+        "point_2": {"value_V": 0.0, "x_px": 1163},
+        "formula": "V=-60+(x-381)*60/782"
+      },
+      "current": {
+        "point_1": {"value_uA": 0.0, "y_px": 220},
+        "point_2": {"value_uA": -60.0, "y_px": 833},
+        "formula": "I_uA=-(y-220)*60/613"
+      }
+    },
+    "sample_voltage_range_V": [-60.0, -10.0],
+    "sample_voltage_step_V": 5.0,
+    "digitization_uncertainty_A": 5.0e-7,
+    "uncertainty_scope": "axis_calibration_line_width_and_trace_selection_only",
+    "experimental_systematic_uncertainty": "not_reported_for_the_digitized_curve",
+    "method": "Trace the irregular solid experimental curve for the r_p/lambda_D=0.26 case. Record its ordinate at fixed 5 V intervals."
+  },
+  "use_limits": [
+    "Use these values for the negative-bias branch only.",
+    "Compare the CSV current with PICSimulation.avg_current, which keeps the source sign.",
+    "Do not treat the digitization uncertainty as the full experimental uncertainty.",
+    "The reported density and temperature came from the same probe characteristic.",
+    "Thus, this dataset is not an independent blind validation of those input parameters.",
+    "No second person has independently digitized the curve.",
+    "The source reports significant finite-length effects above 50 V magnitude; this affects the -55 V and -60 V points.",
+    "The source model used outer radii up to about 55 Debye lengths, or 66.7 mm for this case; a 12 mm domain is only a pilot.",
+    "Do not use the second Figure 2 case until its density exponent is confirmed.",
+    "Do not add the source PDF or a page image to the repository."
+  ],
+  "known_source_issue": {
+    "description": "The second Figure 2 case prints 2.39e7 cm^-3 and r_p/lambda_D=0.49. The printed density gives 0.153. A density of 2.39e8 cm^-3 gives 0.485.",
+    "effect": "The present dataset includes only the internally consistent r_p/lambda_D=0.26 case."
+  }
+}

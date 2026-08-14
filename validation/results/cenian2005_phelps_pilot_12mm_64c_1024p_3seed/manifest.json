@@ -1,0 +1,789 @@
+{
+  "absolute_current_no_scaling": true,
+  "artifact_type": "cenian2005_external_validation_result",
+  "created_utc": "2026-08-14T09:06:20Z",
+  "manifest_sha256": "cc441cde5447849d9e3b6162d7c3912b96850f47dffb8f54eb9ba138f2b661a7",
+  "metrics": {
+    "absolute_current_no_scaling": true,
+    "experimental_point_count": 11,
+    "fraction_within_combined_2sigma": 0.0,
+    "maximum_absolute_error_A": 1.834884037569118e-05,
+    "mean_absolute_error_A": 1.2282604581030438e-05,
+    "mean_absolute_relative_error": 0.8966571434682834,
+    "mean_bias_A": -1.2282604581030438e-05,
+    "normalized_root_mean_square_error": 0.8915109690094828,
+    "points_within_combined_2sigma": 0,
+    "quality_status": "PREVIEW",
+    "release_decision": "NOT_EVALUATED_RESEARCH_PREVIEW",
+    "root_mean_square_error_A": 1.3019555500336372e-05,
+    "root_mean_square_z_score": 18.357877317114674,
+    "seed_count": 3,
+    "simulation_row_count": 33,
+    "uncertainty_statement": "The combined value includes digitization uncertainty and simulation standard error. It does not include full experimental system uncertainty."
+  },
+  "outputs": {
+    "comparison.csv": "f5b6918d854a3c2a513f42ce246a60399ed94c929e9334d2fa19f5dc78622bc9",
+    "metrics.json": "032dd78ec17beb7c054bbc6d73f151a49760ead3119208df8a5671cf99b71035",
+    "simulation_points.csv": "40e175b88c1990577da830957c6581b18d06ca0d460df5377c2b71d9ff339f98"
+  },
+  "plan": {
+    "absolute_current_no_scaling": true,
+    "artifact_type": "cenian2005_external_validation_plan",
+    "config": {
+      "CONFIRM_SYMMETRIC_BACKSCATTER_AS_CEX": true,
+      "COULOMB_LOG": 10.0,
+      "CROSS_SECTION_STRICT": true,
+      "CROSS_SECTION_TARGET": "Ar",
+      "DT": 3e-11,
+      "ENABLE_COULOMB_COLLISIONS": false,
+      "ENABLE_IONIZATION_SECONDARIES": true,
+      "ENABLE_ION_NEUTRAL_ELASTIC": true,
+      "EN_CS_E_MAX": 100.0,
+      "EN_CS_N": 2001,
+      "E_EXC_EV": 11.6,
+      "E_ION_EV": 15.8,
+      "ION_CHARGE_STATE": 1,
+      "ION_CS_E_MAX": 100.0,
+      "ION_CS_N": 2001,
+      "ION_INJECTION_BOHM": false,
+      "ION_SPECIES": "Ar+",
+      "LXCAT_ELECTRON_FILE": "electron_ar_phelps_20260814.txt",
+      "LXCAT_ION_FILE": "ion_ar_phelps_20260814.txt",
+      "N0": 71500000000000.0,
+      "NEUTRAL_SPECIES": "Ar",
+      "N_CELLS": 64,
+      "N_SMOOTHING_PASSES": 1,
+      "P_Torr": 0.0013,
+      "RUN_MODE": "research",
+      "R_MAX": 0.012,
+      "R_MIN": 0.000313,
+      "SIGMA_EN_ELASTIC": 4e-20,
+      "SIGMA_EN_EXC": 2e-20,
+      "SIGMA_EN_ION": 1e-20,
+      "SIGMA_IN_ELASTIC": 0.0,
+      "SMOOTH_DENSITY": false,
+      "T_GAS_K": 290.1,
+      "Te": 1.9,
+      "Ti": 0.025,
+      "V_WALL": 0.0,
+      "config_schema_version": 3,
+      "e": 1.602176634e-19,
+      "epsilon_0": 8.8541878128e-12,
+      "k_B": 1.380649e-23,
+      "m_e": 9.1093837015e-31,
+      "m_i": 6.6335209e-26,
+      "m_neutral": 6.6335209e-26,
+      "m_p": 1.67262192369e-27
+    },
+    "config_paths_redacted": true,
+    "config_sha256": "3af05ee1b4af87e74ffa6646a603f1c1202d8ce98d4c9df04cd2b1943ec10c60",
+    "created_utc": "2026-08-14T08:23:54Z",
+    "current_definition": "Use PICSimulation.avg_current: signed I_electron_magnitude - I_ion_magnitude in amperes for the 0.047 m probe. Do not use avg_conventional_current.",
+    "experiment": {
+      "boundary_mapping": "Maxwellian thermal plasma-bulk influx; ION_INJECTION_BOHM=False.",
+      "doi": "10.1063/1.1938275",
+      "figure": "Figure 2",
+      "geometry_mapping": "Infinite cylindrical model with 0.047 m current length.",
+      "point_count": 11,
+      "probe_length_m": 0.047,
+      "probe_radius_m": 0.000313,
+      "probe_surface_mapping": "Fully absorbing probe surface.",
+      "voltage_reference": "plasma_potential",
+      "voltages_V": [
+        -60.0,
+        -55.0,
+        -50.0,
+        -45.0,
+        -40.0,
+        -35.0,
+        -30.0,
+        -25.0,
+        -20.0,
+        -15.0,
+        -10.0
+      ]
+    },
+    "input_files": {
+      "experimental_csv": {
+        "name": "cenian2005_fig2_case_rp_lambda_0p26.csv",
+        "sha256": "63f4f472a403fe6b3d5c8a0403746f67ff9beed4aa842dc47e9f000495c84728"
+      },
+      "experimental_provenance": {
+        "name": "cenian2005_fig2_case_rp_lambda_0p26.provenance.json",
+        "sha256": "83172ba4c74c65c2875e3c9bb7143ece1d07d1a6cad4b203d6eccf0dd9d658db"
+      },
+      "lxcat_phelps_electron": {
+        "name": "electron_ar_phelps_20260814.txt",
+        "sha256": "4a3ee09a3a4dd10588c3d65ca631868553588426065ef0931e7c8c29a08b788f"
+      },
+      "lxcat_phelps_ion": {
+        "name": "ion_ar_phelps_20260814.txt",
+        "sha256": "7e0efe6690b7d5cff9687647bc0b1ff272c9bbe0d20da04e86208d99d2d07bc8"
+      }
+    },
+    "known_limits": [
+      "The experimental points came from figure digitization.",
+      "The experimental density and temperature came from the same probe curve.",
+      "The pilot sample time is not a production acceptance time.",
+      "The model uses an infinite cylinder multiplied by the measured probe length.",
+      "The experiment does not give point-by-point system uncertainty."
+    ],
+    "numerical_checks": {
+      "accelerated_electron_cfl": 0.76660069043065,
+      "config_stability": {
+        "cell_size_m": 0.000182609375,
+        "cell_to_debye_ratio": 0.15068850437395864,
+        "debye_length_m": 0.0012118334823127874,
+        "debye_resolved": true,
+        "dt_omega_pe": 0.014310862420897357,
+        "electron_cfl": 0.0949698351599706,
+        "electron_cfl_resolved": true,
+        "electron_thermal_speed_m_s": 578079.4080805085,
+        "ion_cfl": 4.036931079395646e-05,
+        "ion_cfl_resolved": true,
+        "ion_thermal_speed_m_s": 245.72715377550477,
+        "is_stable": true,
+        "plasma_frequency_rad_s": 477028747.36324525,
+        "plasma_time_resolved": true
+      },
+      "ion_transit_time_s": 4.756088132887906e-05,
+      "sample_duration_s": 9.5124e-07,
+      "sample_ion_transit_multiples": 0.020000470416480808
+    },
+    "plan_sha256": "419801b9995a78a0002703e934054183891ccc61b6925a2b638f49f21261b6c3",
+    "quality_statement": "This operation is a research preview. It does not give production release evidence.",
+    "quality_status": "PREVIEW",
+    "settings": {
+      "cells": 64,
+      "domain_radius_m": 0.012,
+      "dt_s": 3e-11,
+      "particles": 1024,
+      "sample_steps": 31708,
+      "seeds": [
+        20260814,
+        20260815,
+        20260816
+      ],
+      "warmup_steps": 31708
+    }
+  },
+  "publication": {
+    "machine_local_paths_redacted": true,
+    "raw_manifest_sha256_before_redaction": "9eb275f66338ca123d6f56cff904766a7718753d85b195ea28e68988ace3f120",
+    "runtime_config_sha256_preserved": true,
+    "statement": "Only machine-local path strings were replaced with file names. Runtime configuration, state, input, and output hashes remain."
+  },
+  "quality_statement": "These results are a research preview. They are not a production validation certificate.",
+  "quality_status": "PREVIEW",
+  "run_trace": [
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "6da5bafaf441ce4a9b45058877acbdbc15708a00d71aa06e392385a996be69f1",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "df14730b7ceebd88c25d2c1764f756c1a598c792b645bc22fdbfa8f80eff041f",
+      "voltage_V": -60.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "3ab14c45f518807461dbc6bf9353a23df97393ea95a79e1e8693aacf25c11a42",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "aee5e642946afffdfde57aacf3fa7fccf825b698eaf98cba0911094fe458b02f",
+      "voltage_V": -60.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "9b677900aebf67def73deaea7504b869554451e8387d9a4bbcc38f89d097381a",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "b4e43ad2c45d818bd1c0ae61bdce123988a94f9136c34acf000f3f01345071de",
+      "voltage_V": -60.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "fb968bc1f5bb2a7b262f56eded18e147a74f80e7f6ef0574525e6b4a647a48dc",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "f99a568702642896fa73e90991098aecfb18a7d064a61d4db76eb93cf6c768a7",
+      "voltage_V": -55.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "75baf0f06461bc86098483caa86fd18f9787a3a7f8dc1bcd0819be01c2aba3c7",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "b2c334b82b122b23869f2e4d5dbefbb616f74bc9dc87ebbee9381a00b87a55be",
+      "voltage_V": -55.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "eedc6c6d0fbf688c4703ca952d5ef73a453d63c1e5f772505345b22d7c4f3fdd",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "fabe2c03769d462c2cfea45d3a4ca3f5afa9f562c7b2ba82bd5aef8d54c115d4",
+      "voltage_V": -55.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "8767cfcb9234caa9255f6d3878d9b702c71b419d62346cb1fcf2991803de977a",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "20000210dba16f484c27247320c0f307d44806920808f099a8a97013f25d6d12",
+      "voltage_V": -50.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "195fca60b1309519f9cc98d60ed2b238bfe58d1e3eb077241e79c68aed6fe641",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "cf54048196199619cfcf4d98729cab3d95f8ab3b96b919d7b25afd885d219e2b",
+      "voltage_V": -50.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "f5615d16738e42d5e14d00d4355b88838aeb84509d919ba99b2b4b2fc5be4e41",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "dbbd17b37cac7e7da6705d5683bd36c40fd650bcf50ab637d380343c74ee42ac",
+      "voltage_V": -50.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "6fab52e89d41990b95515b0ec89805d0b87db7c1729c71e1761ad479ecd0b915",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "ebd00649b44cf56371e99ddd7303133af0a8d173197ff2415b75bc9c6e079401",
+      "voltage_V": -45.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "418713f1a059f793dea496328999a187580af2e25c44f33debfb67c0125adca8",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "11ecd95da2e8e013456b2e0cfb586c50333e1f3d4b3302daddaa09b27713a34e",
+      "voltage_V": -45.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "31928fb4854fae33ef7e7ec1ed64a3b8260c8a5776bf0071cb6dc31d20764108",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "2bb3487b74dd3c1dd6f9394c2e0cb1985b6adfad0adbeac5ca045ac34f527bf7",
+      "voltage_V": -45.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "26a1c9b29fdb2fe1e25704cb188c01d323d4f4bc3436d333e1e329ab44f67246",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "c8bebef1ac1e8bf03ee502928781c1f4489435f5e4e1e3e22676bae2b0e6b42a",
+      "voltage_V": -40.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "3636189997ecd5f13508ab1eaf66464cd79ddfe0c2febc140667c5162ef57b4a",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "26a438babca17377b3d3c4ed4aab85d411f3379bb6ecb749b2a3cc7f29d11f78",
+      "voltage_V": -40.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "84e8e4088324fb6be97c877d71aee2e721041879ca552cd7c05af0bf4f7c0424",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "cc5c1d76ea37be668c254d1e0bc8b40eb8e9196353e275b5106cab2ba3bbdbdc",
+      "voltage_V": -40.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "2f742712ece026dca12857473b7f66f4f31039366788fea148d5ceabe12ec4c8",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "eb8136645e961065581a19ba3934fec85d4437be0f654e3401a7d63e7e0563a1",
+      "voltage_V": -35.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "1894bc2232b036371c23f8cd6964ac4038449855488d4a7426793c95ab8fd6d5",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "85a8282a37ecee251bdcbee36c9176471b4b5a5bed50217b5ca910c7e83459db",
+      "voltage_V": -35.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "d40f4051ee51f40aacf38282ae544f64c17ade3afb7f1c69bffe51ff7759a38f",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "62d3ffdaf917f8798cf335a57df2d2e845e579439738ac9043c3d0cb2a50ba33",
+      "voltage_V": -35.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "35145d7acbf520ebf823e25f1135bfda5daff67cb1a35e24357eed230fa45e4a",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "8af63f4b4467cdfc5b18a7f9a5a0e6f50a6e36574d1a470f95c2258c562019b7",
+      "voltage_V": -30.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "0d97af9536ed2e44bdf86e16a84de52894b26f8452dc7f3893b6bfeb17f9fdf0",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "a396e961177e03da3bb5f0a26215ea1744dda9feb514f5fdb8d662f8f435a9ae",
+      "voltage_V": -30.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "5aaaf04dcb43c278d3f4ecb0fb4954903f8555708c2667af59375ca4e00e77e0",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "2226838acd1636509bc509c3f172a66ec4bc3b8158ec215e18a57db0795d89b8",
+      "voltage_V": -30.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "0cdaad58f70a6922f7f322cf2a64802a4d5ce23e96b0a30bdb9f44da6d47c062",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "83813abdfff8291010ae86a5dcae05525e24274a530ce632a32bd89f8d62de56",
+      "voltage_V": -25.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "165686f5bb9fb9645f065f094908115f563f77b12e0740d7586c3f55cac26abf",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "8ac4d8f8af0d96ef349f1d927f2df0369f2075027aa0b5fb9d27e5ac3f9d0869",
+      "voltage_V": -25.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "f3ef56536bbd6c0e989c640eb76f210efae4d15ce91dc2173b9687555d82f528",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "87e3da1a69f296f8d9e84561adc9777c2815615b7454588c8b003f6876664b57",
+      "voltage_V": -25.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "d19f35915951d780e26237504716f9474ce8bb1e38ac53f76e1319f7bf43a499",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "8b7c54684c89763524d1a18da29755f0bfd08e872d04e3794e309d6596e84355",
+      "voltage_V": -20.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "886ddd5ee274d7174eaf877a4cfcb0c7e5154e1a6e71b1907a4cde2ee6ca9e30",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "3239b09c6f84f2857ab2ee2b381a61afad77ae4af2ec8e99ddd854c453c17efe",
+      "voltage_V": -20.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "df62be59ff1e8214319fcd410d83ae9424aca9da4689632b5f4376bc0dfc878d",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "b4b0db8d6542fa24260e662a133dc172df7246c96bd709e79632676f18faf3aa",
+      "voltage_V": -20.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "b5dcf73a13b0210011c1851d7361db242c6963e44185295b6c752366d86c5de1",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "a987dc3443a4e8905475f08c745ba863ef171cda63b8d247a5ec9eaa90c5ff72",
+      "voltage_V": -15.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "837575d2bc3db292cb05a2b510f84f85548ff25014b5a6ee07cff397cfb9e4f9",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "5d11d7630c9c915597eb0129bf9aa3a2073ecb8fc85c5db87f9a79c70a29ba70",
+      "voltage_V": -15.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "a36bb1969284c729568b0f9bfa54ff72b43289eea7e5ae8d00b30fb392aeab28",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "cf830430502abd6982d235478c0bac9f26367a19373f95d41537670764b8b058",
+      "voltage_V": -15.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "cb3491de062ec7102ed638ac0a8fcb77284b02204cd2b0116d696e23ba9cb69e",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260814,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "fec0bf95c8fd27f4d5ba913a3efaf0e41be9d3b5d66e178bd85093f27148956d",
+      "voltage_V": -10.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "4e6d627b81f6c07c60ad80269490390abbec18effcfacd1ed2f6a12124172b12",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260815,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "482a35fa28df25bcb3f0ca86da876de0c375cb856de02659f60ac2628da84c8d",
+      "voltage_V": -10.0
+    },
+    {
+      "electron_particle_ledger_residual": 0,
+      "energy_table_overflow_lookups": 0,
+      "ion_particle_ledger_residual": 0,
+      "manifest_sha256": "93e200bfb6c03fa6388c66c47f813d036675e71edd2f249c1517936991c037eb",
+      "numerical_status": "PASS",
+      "physics_limitations": [
+        "boundary_entry_motion_uses_precollision_velocity",
+        "external_validation_not_complete",
+        "preview_coulomb_operator_not_release_model"
+      ],
+      "runtime_warnings": [],
+      "seed": 20260816,
+      "simulation_status": "READY",
+      "stability_warnings": [],
+      "state_sha256": "6ada4d790af1b0aabdda98f9caf80054e179e8b7de2c0a8608125c835b8af0cf",
+      "voltage_V": -10.0
+    }
+  ],
+  "versions": {
+    "data_schema_version": "1",
+    "dependencies": {
+      "numba": "0.64.0",
+      "numpy": "2.4.3"
+    },
+    "distribution_name": "pic-probe-simulation",
+    "physics_model_version": "2",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "python_implementation": "CPython",
+    "python_version": "3.13.12",
+    "rng_algorithm_version": "counter-splitmix64-v1",
+    "software_version": "0.2.1.dev0",
+    "source_commit": null
+  }
+}

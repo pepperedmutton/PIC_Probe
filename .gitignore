@@ -1,3 +1,14 @@
 __pycache__/
 *.pyc
-results/
+/results/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+wheel-smoke/
+.validation_private/
+tmp/
+outputs/

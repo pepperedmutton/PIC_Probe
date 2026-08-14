@@ -179,6 +179,10 @@ def _is_electron(text: str) -> bool:
     return text.strip().casefold() in {"e", "e-", "electron"}
 
 
+def _canonical_species(text: str) -> str:
+    return re.sub(r"[\s^{}]", "", text).casefold()
+
+
 def load_lxcat_text(
     path: Path | str,
     default_target: str | None = None,
@@ -206,6 +210,46 @@ def _select_processes(
         if _is_electron(process.incident_particle) != electron:
             continue
         selected.append(process)
+    return selected
+
+
+def _select_ion_processes(
+    processes: Iterable[CrossSectionProcess],
+    kinds: set[str],
+    target: str,
+    *,
+    ion_species: str | None,
+    strict: bool,
+) -> list[CrossSectionProcess]:
+    candidates = _select_processes(
+        processes,
+        kinds,
+        target,
+        electron=False,
+    )
+    if ion_species is None and not strict:
+        return candidates
+    expected = _canonical_species(
+        ion_species if ion_species is not None else f"{target}+"
+    )
+    selected = [
+        process
+        for process in candidates
+        if _canonical_species(process.incident_particle) == expected
+    ]
+    if strict and len(selected) != len(candidates):
+        actual = sorted(
+            {
+                process.incident_particle.strip()
+                for process in candidates
+                if _canonical_species(process.incident_particle) != expected
+            }
+        )
+        raise ValueError(
+            "An ion cross section has an unexpected incident species: "
+            + ", ".join(actual)
+            + "."
+        )
     return selected
 
 
@@ -276,6 +320,41 @@ def _validate_confirmed_mapping(
         if not process.mapping_confirmed:
             raise ValueError(
                 f"The mapping for {process.process_type} is not confirmed."
+            )
+
+
+def _validate_single_elastic_candidate(
+    processes: list[CrossSectionProcess],
+    particle: str,
+    *,
+    strict: bool,
+) -> None:
+    if strict and len(processes) > 1:
+        raise ValueError(
+            f"The strict {particle} loader has {len(processes)} elastic candidates; "
+            "only one is permitted."
+        )
+
+
+def _validate_energy_coverage(
+    processes: Iterable[CrossSectionProcess],
+    e_max: float,
+    *,
+    strict: bool,
+) -> None:
+    if not strict:
+        return
+    for process in processes:
+        source_max = float(process.energy_ev[-1])
+        tolerance = 64.0 * np.finfo(np.float64).eps * max(
+            1.0,
+            abs(source_max),
+            abs(e_max),
+        )
+        if source_max + tolerance < e_max:
+            raise ValueError(
+                f"The {process.process_type} cross section ends at "
+                f"{source_max:g} eV, below the requested {e_max:g} eV."
             )
 
 
@@ -407,22 +486,29 @@ def _build_electron_tables(
     *,
     strict: bool,
 ) -> ElectronXSections:
-    elastic = _select_processes(
+    elastic_processes = _select_processes(
         processes,
         {"ELASTIC"},
         target,
         electron=True,
     )
-    if not elastic:
-        elastic = _select_processes(
-            processes,
-            {"EFFECTIVE"},
-            target,
-            electron=True,
-        )
+    effective_processes = _select_processes(
+        processes,
+        {"EFFECTIVE"},
+        target,
+        electron=True,
+    )
+    _validate_single_elastic_candidate(
+        elastic_processes + effective_processes,
+        "electron",
+        strict=strict,
+    )
+    effective = effective_processes if not elastic_processes else []
+    elastic = elastic_processes if elastic_processes else effective_processes
     if not elastic:
         raise ValueError("No electron elastic cross section is available for the target.")
     _validate_confirmed_mapping(elastic, strict=strict)
+    _validate_energy_coverage(elastic[:1], e_max, strict=strict)
     elastic_energy, elastic_sigma = _sum_processes(elastic[:1])
 
     excitation = _select_processes(
@@ -444,6 +530,7 @@ def _build_electron_tables(
         strict=strict,
         reject_multiple_products=False,
     )
+    _validate_energy_coverage(excitation, e_max, strict=strict)
 
     ionization = _select_processes(
         processes,
@@ -451,6 +538,8 @@ def _build_electron_tables(
         target,
         electron=True,
     )
+    if strict and not ionization:
+        raise ValueError("No electron ionization process is available for the target.")
     (
         ionization_thresholds_ev,
         ionization_channel_tables,
@@ -462,6 +551,7 @@ def _build_electron_tables(
         strict=strict,
         reject_multiple_products=True,
     )
+    _validate_energy_coverage(ionization, e_max, strict=strict)
 
     e_min, inv_de, sigma_elastic = _build_uniform_table(
         elastic_energy,
@@ -469,6 +559,21 @@ def _build_electron_tables(
         e_max,
         n_bins,
     )
+    if effective:
+        inelastic = sigma_excitation + sigma_ionization
+        sigma_elastic = sigma_elastic - inelastic
+        scale = max(
+            float(np.max(np.abs(elastic_sigma))),
+            float(np.max(np.abs(inelastic))),
+            np.finfo(np.float64).tiny,
+        )
+        tolerance = 1.0e-10 * scale
+        if float(np.min(sigma_elastic)) < -tolerance:
+            raise ValueError(
+                "The EFFECTIVE cross section is smaller than the summed "
+                "inelastic cross sections."
+            )
+        sigma_elastic = np.maximum(sigma_elastic, 0.0)
     return ElectronXSections(
         e_min=e_min,
         inv_de=inv_de,
@@ -508,24 +613,42 @@ def _build_ion_tables(
     *,
     fallback_cex: float | None,
     strict: bool,
+    confirm_symmetric_backscatter_as_cex: bool,
+    ion_species: str | None,
 ) -> IonXSections:
     if fallback_cex is not None and fallback_cex < 0.0:
         raise ValueError("The fallback cross section is negative.")
 
-    charge_exchange = _select_processes(
+    charge_exchange = _select_ion_processes(
         processes,
         {"CHARGE EXCHANGE"},
         target,
-        electron=False,
+        ion_species=ion_species,
+        strict=strict,
     )
-    backscatter = _select_processes(
+    backscatter = _select_ion_processes(
         processes,
         {"BACKSCATTER"},
         target,
-        electron=False,
+        ion_species=ion_species,
+        strict=strict,
     )
     if charge_exchange:
+        _validate_confirmed_mapping(charge_exchange, strict=strict)
+        _validate_energy_coverage(charge_exchange, e_max, strict=strict)
         cex_energy, cex_sigma = _sum_processes(charge_exchange)
+    elif backscatter and confirm_symmetric_backscatter_as_cex:
+        expected_ion = _canonical_species(
+            ion_species if ion_species is not None else f"{target}+"
+        )
+        expected_parent_ion = _canonical_species(f"{target}+")
+        if expected_ion != expected_parent_ion:
+            raise ValueError(
+                "Backscatter can be mapped to charge exchange only for "
+                "a singly charged ion and its parent neutral."
+            )
+        _validate_energy_coverage(backscatter, e_max, strict=strict)
+        cex_energy, cex_sigma = _sum_processes(backscatter)
     elif backscatter and strict:
         raise ValueError(
             "BACKSCATTER is not a confirmed CHARGE EXCHANGE process."
@@ -537,20 +660,30 @@ def _build_ion_tables(
     elif fallback_cex is not None and fallback_cex > 0.0:
         cex_energy = np.array([0.0, e_max], dtype=float)
         cex_sigma = np.array([fallback_cex, fallback_cex], dtype=float)
-    elif backscatter:
-        cex_energy, cex_sigma = _sum_processes(backscatter)
     else:
         cex_energy = np.array([0.0, e_max], dtype=float)
         cex_sigma = np.zeros(2, dtype=float)
 
-    elastic = _select_processes(
+    elastic = _select_ion_processes(
         processes,
-        {"ELASTIC", "EFFECTIVE"},
+        {"ELASTIC", "EFFECTIVE", "ISOTROPIC"},
         target,
-        electron=False,
+        ion_species=ion_species,
+        strict=strict,
+    )
+    _validate_single_elastic_candidate(
+        elastic,
+        "ion",
+        strict=strict,
     )
     if elastic:
+        _validate_confirmed_mapping(elastic[:1], strict=strict)
+        _validate_energy_coverage(elastic[:1], e_max, strict=strict)
         elastic_energy, elastic_sigma = _sum_processes(elastic[:1])
+    elif strict:
+        raise ValueError(
+            "No confirmed ion elastic or isotropic process is available for the target."
+        )
     else:
         elastic_energy = np.array([0.0, e_max], dtype=float)
         elastic_sigma = np.zeros(2, dtype=float)
@@ -583,6 +716,8 @@ def build_ion_tables_from_lxcat(
     fallback_cex: float | None = None,
     *,
     strict: bool = False,
+    confirm_symmetric_backscatter_as_cex: bool = False,
+    ion_species: str | None = None,
 ) -> IonXSections:
     processes = load_lxcat_text(path, default_target=target, strict=strict)
     return _build_ion_tables(
@@ -592,6 +727,10 @@ def build_ion_tables_from_lxcat(
         n_bins,
         fallback_cex=fallback_cex,
         strict=strict,
+        confirm_symmetric_backscatter_as_cex=(
+            confirm_symmetric_backscatter_as_cex
+        ),
+        ion_species=ion_species,
     )
 
 
@@ -669,6 +808,8 @@ def load_cross_sections_from_custom_file(
     strict: bool = False,
     ion_e_max: float | None = None,
     ion_n_bins: int | None = None,
+    confirm_symmetric_backscatter_as_cex: bool = False,
+    ion_species: str | None = None,
 ) -> tuple[ElectronXSections, IonXSections]:
     processes = load_lxcat_text(path, default_target=target, strict=strict)
     electron_tables = _build_electron_tables(
@@ -685,6 +826,10 @@ def load_cross_sections_from_custom_file(
         n_bins if ion_n_bins is None else ion_n_bins,
         fallback_cex=None,
         strict=strict,
+        confirm_symmetric_backscatter_as_cex=(
+            confirm_symmetric_backscatter_as_cex
+        ),
+        ion_species=ion_species,
     )
     return electron_tables, ion_tables
 

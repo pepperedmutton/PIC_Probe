@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "dataset_id": "cenian2005_fig2_rp_lambda_0p26",
+  "files": {
+    "csv": {
+      "filename": "cenian2005_fig2_case_rp_lambda_0p26.csv",
+      "sha256": "63f4f472a403fe6b3d5c8a0403746f67ff9beed4aa842dc47e9f000495c84728"
+    },
+    "provenance": {
+      "filename": "cenian2005_fig2_case_rp_lambda_0p26.provenance.json",
+      "sha256": "c6299428ff372ef935d626e14b75ca2d522efb8ab83f46418373399c4937b279"
+    }
+  }
+}
