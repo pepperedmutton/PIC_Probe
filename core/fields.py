@@ -75,28 +75,38 @@ def compute_electric_field(phi: np.ndarray, dr: float, E: np.ndarray) -> None:
 
 
 @jit(nopython=True)
-def smooth_density_cylindrical(rho: np.ndarray, n_passes: int) -> None:
-    """Apply binomial smoothing (1-2-1) to density array.
-
-    Args:
-        rho: Charge density array (modified in-place)
-        n_passes: Number of smoothing passes
-    """
+def smooth_density_cylindrical(
+    rho: np.ndarray,
+    n_passes: int,
+    vol: np.ndarray | None = None,
+) -> None:
+    """Smooth the internal density and keep the total charge constant."""
     n = rho.shape[0]
-    if n < 3 or n_passes <= 0:
+    if n < 4 or n_passes <= 0:
         return
 
+    weights = np.ones(n) if vol is None else vol
     rho_new = np.empty_like(rho)
-    
+    charge_new = np.empty_like(rho)
+
     for _ in range(n_passes):
-        # Interior points: 0.25 * rho[j-1] + 0.5 * rho[j] + 0.25 * rho[j+1]
-        for j in range(1, n - 1):
-            rho_new[j] = 0.25 * rho[j - 1] + 0.5 * rho[j] + 0.25 * rho[j + 1]
-            
-        # Boundaries: Asymmetric 2-point smooth
-        rho_new[0] = 0.666 * rho[0] + 0.334 * rho[1]
-        rho_new[n - 1] = 0.666 * rho[n - 1] + 0.334 * rho[n - 2]
-        
-        # Copy back
+        for j in range(n):
+            charge_new[j] = rho[j] * weights[j]
+
+        for j in range(1, n - 2):
+            weight_sum = weights[j] + weights[j + 1]
+            if weight_sum <= 0.0:
+                continue
+            coupling = 2.0 * weights[j] * weights[j + 1] / weight_sum
+            transfer = 0.25 * coupling * (rho[j + 1] - rho[j])
+            charge_new[j] += transfer
+            charge_new[j + 1] -= transfer
+
+        for j in range(n):
+            if weights[j] > 0.0:
+                rho_new[j] = charge_new[j] / weights[j]
+            else:
+                rho_new[j] = rho[j]
+
         for j in range(n):
             rho[j] = rho_new[j]
